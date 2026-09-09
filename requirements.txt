@@ -1,0 +1,4 @@
+# Coeur : numpy seulement (le modele logistique est implemente maison)
+numpy>=1.24
+# Optionnel : active l'ensemble GBDT (+1-2 pts de log-loss) et l'export pandas
+scikit-learn>=1.3 ; python_version >= "3.9"
