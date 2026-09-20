@@ -303,6 +303,15 @@ def test_pronostiqueur_se_tait_quand_c_est_serre():
     assert SEUIL_ABSTENTION >= 0.55
 
 
+def test_momentum_branche_ne_s_active_pas_sur_donnees_independantes():
+    """Le momentum ne doit s'appliquer que s'il est mesure significatif."""
+    maps = simulate_history(n_teams=16, years=2.0, seed=23)
+    an = Analyzer().load_maps(maps).train(use_gbdt=False)
+    diag = an.apply_estimated_momentum()
+    assert diag.get("significatif") is False
+    assert an.momentum == 0.0   # rien invente la ou il n'y a pas de signal
+
+
 def test_carte_de_pronostics_complete():
     from cs2edge.pronostic import Fixture, Tipster, format_card
 

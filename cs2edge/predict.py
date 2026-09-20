@@ -219,6 +219,36 @@ class Analyzer:
     def known_teams(self) -> list[str]:
         return sorted(self.fx.elo.teams) if self.fx else []
 
+    def estimate_momentum(self) -> dict:
+        """Mesure l'effet d'enchainement entre maps sur l'historique charge.
+
+        Reponds a : sachant ce que le modele sait deja des deux equipes et de la
+        map, gagner la map precedente porte-t-il un signal supplementaire ? Le
+        resultat inclut un test de significativite - on ne branche l'effet en
+        production que s'il depasse le bruit (`significatif`). Sans cela on
+        inventerait du momentum la ou il n'y en a pas, defaut classique des
+        modeles publics.
+        """
+        from .features import FeatureExtractor
+        from .markets import estimate_momentum
+
+        if self.map_model is None:
+            raise RuntimeError("entrainer le modele avant d'estimer le momentum")
+        return estimate_momentum(self.matches, self.map_model, FeatureExtractor(self.elo_config))
+
+    def apply_estimated_momentum(self) -> dict:
+        """Estime le momentum et l'active seulement s'il est significatif.
+
+        Retourne le diagnostic complet ; `self.momentum` n'est modifie que si
+        l'effet tient statistiquement. C'est la seule quantite du systeme qu'on
+        laisse a zero par defaut, precisement parce qu'elle est facile a
+        halluciner.
+        """
+        diag = self.estimate_momentum()
+        if diag.get("significatif"):
+            self.momentum = float(diag["momentum"])
+        return diag
+
     def resolve_team(self, name: str) -> str:
         canonical = normalize_team(name)
         if self.fx and canonical in self.fx.elo.teams:

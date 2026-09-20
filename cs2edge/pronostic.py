@@ -745,13 +745,20 @@ def format_card(analyses: list[Analysis], verbose: bool = False) -> str:
     return "\n".join(lines)
 
 
-def fit_decider_temperature(analyzer) -> float:
+def fit_decider_temperature(analyzer, momentum: float = 0.0) -> float:
     """Calibre la longueur de serie sur tout l'historique disponible.
 
     Utilise pour servir des pronostics : ici on veut la meilleure estimation
     possible a l'instant present, donc on regarde tout le passe. Le backtest,
     lui, la reestime a chaque fold pour ne jamais utiliser le futur.
+
+    `momentum` doit etre celui qui sera reellement applique en service : la
+    temperature corrige le biais residuel de la loi du score *apres* momentum,
+    donc les deux doivent etre coherents, sinon la calibration compense un
+    momentum qui ne sera pas la (ou l'inverse).
     """
     if analyzer.match_ds is None or analyzer.map_model is None:
         raise RuntimeError("charger et entrainer avant de calibrer")
-    return _fit_decider_on(analyzer.match_ds, analyzer.map_model, len(analyzer.match_ds))
+    return _fit_decider_on(
+        analyzer.match_ds, analyzer.map_model, len(analyzer.match_ds), momentum=momentum
+    )

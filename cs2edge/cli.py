@@ -164,9 +164,40 @@ def cmd_predict(args) -> int:
 
 
 def _tipster(an: Analyzer, args) -> Tipster:
-    temp = 1.0 if getattr(args, "no_calibration", False) else fit_decider_temperature(an)
+    # Momentum inter-maps : estime sur les donnees, applique seulement s'il est
+    # significatif (voir Analyzer.apply_estimated_momentum). Un flag permet de le
+    # forcer a zero ou a une valeur mesuree ailleurs.
+    mode = getattr(args, "momentum", "auto")
+    if mode == "auto":
+        diag = an.apply_estimated_momentum()
+        m = diag.get("momentum")
+        if an.momentum:
+            print(
+                f"Momentum inter-maps : {an.momentum:+.3f} en logit (significatif, "
+                f"n={diag.get('n_total', 0)}) - applique.",
+                file=sys.stderr,
+            )
+        elif m is not None:
+            print(
+                f"Momentum inter-maps mesure {m:+.3f} mais non significatif "
+                f"(+/-{2 * diag.get('erreur_type', 0):.3f}) : laisse a zero.",
+                file=sys.stderr,
+            )
+    elif mode != "0":
+        an.momentum = float(mode)
+        print(f"Momentum inter-maps force a {an.momentum:+.3f} en logit.", file=sys.stderr)
+
+    temp = (
+        1.0 if getattr(args, "no_calibration", False)
+        else fit_decider_temperature(an, momentum=an.momentum)
+    )
     print(f"Calibration de la longueur de serie : T = {temp:.3f}", file=sys.stderr)
-    return Tipster(an, decider_temperature=temp)
+    kw = {}
+    if getattr(args, "edge_min", None) is not None:
+        kw["edge_min"] = args.edge_min
+    if getattr(args, "abstention", None) is not None:
+        kw["abstention"] = args.abstention
+    return Tipster(an, momentum=an.momentum, decider_temperature=temp, **kw)
 
 
 def cmd_fixtures(args) -> int:
@@ -248,6 +279,7 @@ def cmd_tipster_backtest(args) -> int:
         an.match_ds, an.map_ds,
         initial_frac=args.initial_frac,
         abstention=args.abstention,
+        momentum=args.momentum,
         use_gbdt=not args.no_gbdt,
     )
     print()
@@ -384,6 +416,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--verbose", action="store_true", help="affiche la loi du score")
     s.add_argument("--no-calibration", action="store_true",
                    help="desactive la calibration de la longueur de serie")
+    s.add_argument("--momentum", default="auto",
+                   help="effet d'enchainement entre maps : 'auto' (mesure, applique "
+                        "si significatif), '0' (aucun), ou un decalage en logit")
+    s.add_argument("--abstention", type=float, default=None,
+                   help="probabilite minimale pour se prononcer sans cotes (defaut 0.60)")
+    s.add_argument("--edge-min", type=float, default=None,
+                   help="ecart minimal avec le marche pour un pari avec cotes (defaut 0.04)")
     s.set_defaults(func=cmd_slate)
 
     s = sub.add_parser("settle", parents=[common],
@@ -408,6 +447,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--initial-frac", type=float, default=0.4)
     s.add_argument("--abstention", type=float, default=0.60,
                    help="probabilite minimale pour se prononcer")
+    s.add_argument("--momentum", type=float, default=0.0,
+                   help="decalage momentum en logit a appliquer (defaut 0 ; mesurer "
+                        "d'abord avec `slate --momentum auto`)")
     s.set_defaults(func=cmd_tipster_backtest)
     return p
 
