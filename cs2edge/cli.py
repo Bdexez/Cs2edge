@@ -214,11 +214,12 @@ def cmd_fixtures(args) -> int:
     with out.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["date", "team_a", "team_b", "best_of", "lan", "event",
-                    "odds_a", "odds_b", "odds_over", "odds_under"])
+                    "odds_a", "odds_b", "odds_over", "odds_under",
+                    "odds_a_sweep", "odds_b_sweep"])
         for i, (a, b) in enumerate(pairs):
             w.writerow([
                 (on + dt.timedelta(days=1 + i // 3)).isoformat(), a, b, 3, 1,
-                "Exemple", "", "", "", "",
+                "Exemple", "", "", "", "", "", "",
             ])
     print(f"{len(pairs)} matchs a venir -> {out}")
     print("Colonnes de cotes laissees vides : le pronostiqueur repondra "

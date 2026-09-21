@@ -312,6 +312,47 @@ def test_momentum_branche_ne_s_active_pas_sur_donnees_independantes():
     assert an.momentum == 0.0   # rien invente la ou il n'y a pas de signal
 
 
+def test_handicap_emis_seulement_sur_pool_desequilibre_et_regle_juste():
+    from cs2edge.markets import project_veto, series_distribution
+    from cs2edge.pronostic import _settle, select_analysis_picks
+
+    # Pool tres desequilibre : le favori (A) domine partout -> 2-0 tres probable.
+    pool = [(f"m{i}", p) for i, p in enumerate([0.97, 0.96, 0.95, 0.94, 0.93, 0.92, 0.9])]
+    dist = series_distribution(project_veto(pool, 3).order, 3)
+    picks = select_analysis_picks(dt.date(2026, 1, 1), "a", "b", 3, "", dist.p_a, dist)
+    hcap = [p for p in picks if p.market.startswith("handicap -")]
+    assert hcap and hcap[0].market == "handicap -1.5"      # bo3 : sweep = -1.5
+    assert hcap[0].selection == "a" and hcap[0].tier == "solide"
+    # Regle : couvert seulement si le favori gagne 2-0.
+    assert _settle(hcap[0], {"score": "2-0"}, y_a=1.0) is True
+    assert _settle(hcap[0], {"score": "2-1"}, y_a=1.0) is False   # a lache une map
+    assert _settle(hcap[0], {"score": "1-2"}, y_a=0.0) is False   # a perdu
+
+    # Pool moderement desequilibre : sweep ~0.66 -> handicap au palier interessant
+    # (emis des le seuil d'abstention, pas seulement au palier solide).
+    moyen = [(f"m{i}", p) for i, p in enumerate([0.9, 0.88, 0.85, 0.8, 0.78, 0.75, 0.7])]
+    dm = series_distribution(project_veto(moyen, 3).order, 3)
+    hm = [p for p in select_analysis_picks(dt.date(2026, 1, 1), "a", "b", 3, "", dm.p_a, dm)
+          if p.market.startswith("handicap -")]
+    assert hm and hm[0].tier == "interessant" and 0.60 <= hm[0].probability < 0.70
+
+    # bo5 : ne pas lacher de map = 3-0 = handicap -2.5 (pas -1.5).
+    b5 = select_analysis_picks(dt.date(2026, 1, 1), "a", "b", 5, "", dist.p_a, dist)
+    h5 = [p for p in b5 if p.market.startswith("handicap -")]
+    if h5:  # emis seulement si le 3-0 depasse le palier solide
+        assert h5[0].market == "handicap -2.5"
+        assert _settle(h5[0], {"score": "3-0"}, y_a=1.0) is True
+        assert _settle(h5[0], {"score": "3-1"}, y_a=1.0) is False  # une map lachee
+
+    # Pool equilibre : pas de sweep assez probable -> aucun pick handicap.
+    even = [(f"m{i}", p) for i, p in enumerate([0.58, 0.55, 0.52, 0.5, 0.48, 0.45, 0.42])]
+    d2 = series_distribution(project_veto(even, 3).order, 3)
+    assert not any(
+        p.market.startswith("handicap -")
+        for p in select_analysis_picks(dt.date(2026, 1, 1), "a", "b", 3, "", d2.p_a, d2)
+    )
+
+
 def test_carte_de_pronostics_complete():
     from cs2edge.pronostic import Fixture, Tipster, format_card
 
@@ -333,6 +374,33 @@ def test_carte_de_pronostics_complete():
         assert abs(a.distribution.p_a - a.prediction.p_a) < 1e-6
         for pk in a.picks:
             assert 0.5 <= pk.probability <= 1.0 or pk.market != "vainqueur"
+
+
+def test_handicap_en_mode_valeur():
+    """Une cote de sweep declenche le marche handicap, meme sans cote vainqueur."""
+    from types import SimpleNamespace
+
+    from cs2edge.markets import project_veto, series_distribution
+    from cs2edge.odds import expected_value
+    from cs2edge.pronostic import Fixture, Tipster
+
+    pool = [(f"m{i}", p) for i, p in enumerate([0.9, 0.88, 0.85, 0.8, 0.78, 0.75, 0.7])]
+    dist = series_distribution(project_veto(pool, 3).order, 3)
+    pred = SimpleNamespace(team_a="a", team_b="b", p_a=dist.p_a)
+    tip = Tipster.__new__(Tipster)
+    tip.edge_min = 0.04
+
+    # Cote genereuse sur le sweep de a -> valeur ; cote serree -> rien.
+    p_sweep = dist.p_clean_sweep(True)
+    genereuse = 1.0 / p_sweep * 1.30
+    fx = Fixture(dt.date(2026, 1, 1), "a", "b", 3, False, "T", odds_a_sweep=genereuse)
+    picks = tip._value_picks(fx, pred, dist, [])
+    assert picks and picks[0].market == "handicap -1.5" and picks[0].selection == "a"
+    assert expected_value(picks[0].probability, picks[0].odds) > 0
+
+    serree = 1.0 / p_sweep * 0.98   # sous le seuil de rentabilite
+    fx2 = Fixture(dt.date(2026, 1, 1), "a", "b", 3, False, "T", odds_a_sweep=serree)
+    assert tip._value_picks(fx2, pred, dist, []) == []
 
 
 def test_journal_archive_pointe_et_ne_double_pas():

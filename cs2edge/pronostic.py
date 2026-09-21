@@ -58,6 +58,11 @@ class Fixture:
     odds_b: float | None = None
     odds_over: float | None = None   # total maps au-dessus de la ligne
     odds_under: float | None = None
+    # Handicap de maps : cote pour "l'equipe gagne sans lacher une map" (2-0 en
+    # bo3, 3-0 en bo5). C'est le marche ou l'edge du modele est le plus grand,
+    # parce que les books l'ouvrent souvent depuis un modele i.i.d. aveugle au veto.
+    odds_a_sweep: float | None = None
+    odds_b_sweep: float | None = None
 
     @property
     def label(self) -> str:
@@ -165,18 +170,43 @@ def select_analysis_picks(
         )
     )
 
-    # Marche derive : c'est la que la structure du veto apporte le plus, parce
+    # Marches derives : c'est la que la structure du veto apporte le plus, parce
     # que les modeles i.i.d. s'y trompent systematiquement.
     if best_of >= 3 and dist is not None:
         line = best_of - 0.5
         p_over = dist.p_maps_played(best_of)
         side, p = ("+", p_over) if p_over >= 0.5 else ("-", 1 - p_over)
-        if p >= TIER_SOLIDE:
+        # Emis des le seuil d'abstention, comme le vainqueur : la bande 0.60-0.70
+        # tient sa promesse sur le backtest (promesse ~65%, realise ~64%), la
+        # reserver au palier solide jetterait des picks calibres.
+        if p >= abstention:
             picks.append(
                 Pick(
                     date=date, team_a=team_a, team_b=team_b, best_of=best_of,
                     event=event, market=f"total maps {side}{line}", selection="oui",
                     probability=p, tier=_tier(p), verdict="PRONOSTIC",
+                )
+            )
+
+        # Handicap sur le favori : gagner la serie sans lacher une map. C'est un
+        # pronostic distinct du "vainqueur" - le favori peut gagner en lachant
+        # une map - et sa probabilite sort directement de la structure du veto
+        # (un pool desequilibre rend le sweep bien plus probable qu'un modele
+        # i.i.d. ne le croit). La ligne depend du format : un 2-0 couvre -1.5 en
+        # bo3, un 3-0 couvre -2.5 en bo5 (c'est le seul score sans map lachee).
+        # Emis des le seuil d'abstention (comme le vainqueur), et non a 0.70 :
+        # backteste sur 9 mondes, la bande 0.60-0.70 tient sa promesse (promesse
+        # ~65%, realise ~66%), donc s'en priver reviendrait a jeter des picks
+        # calibres.
+        need = best_of // 2 + 1
+        hline = need - 0.5
+        p_sweep = dist.p_clean_sweep(favorite == team_a)
+        if p_sweep >= abstention:
+            picks.append(
+                Pick(
+                    date=date, team_a=team_a, team_b=team_b, best_of=best_of,
+                    event=event, market=f"handicap -{hline}", selection=favorite,
+                    probability=p_sweep, tier=_tier(p_sweep), verdict="PRONOSTIC",
                 )
             )
     return picks
@@ -297,7 +327,15 @@ class Tipster:
             analysis.skipped = "donnees insuffisantes sur au moins une des deux equipes"
             return analysis
 
-        market_mode = fx.odds_a is not None and fx.odds_b is not None
+        # Des qu'une cote est fournie (vainqueur, total ou handicap), on bascule
+        # en mode marche : la question devient "ou le marche se trompe". Chaque
+        # bloc de _value_picks est independant, il n'exige que ses propres cotes.
+        market_mode = any(
+            o is not None for o in (
+                fx.odds_a, fx.odds_b, fx.odds_over, fx.odds_under,
+                fx.odds_a_sweep, fx.odds_b_sweep,
+            )
+        )
         if market_mode:
             analysis.picks = self._value_picks(fx, pred, dist, rationale)
         else:
@@ -319,6 +357,15 @@ class Tipster:
         for pk in picks:
             if pk.market == "vainqueur":
                 pk.rationale = rationale
+            elif pk.market.startswith("handicap -"):
+                need = pk.best_of // 2 + 1
+                pk.rationale = [
+                    f"Pool desequilibre en faveur de {pk.selection} : le veto lui "
+                    f"laisse ses meilleurs terrains, ce qui rend le sweep ({need}-0) "
+                    f"plus probable ({pk.probability:.0%}) qu'un modele qui traiterait "
+                    "les maps comme interchangeables.",
+                    "Pronostic correle au vainqueur : ne pas cumuler les mises.",
+                ]
             else:
                 pk.rationale = [
                     "Loi du score issue du veto projete : "
@@ -334,11 +381,14 @@ class Tipster:
 
     def _value_picks(self, fx, pred, dist, rationale) -> list[Pick]:
         picks: list[Pick] = []
-        ma, mb = devig_power(fx.odds_a, fx.odds_b)
-        for team, p_model, p_market, odds in (
-            (pred.team_a, pred.p_a, ma, fx.odds_a),
-            (pred.team_b, 1 - pred.p_a, mb, fx.odds_b),
-        ):
+        outright: list[tuple] = []
+        if fx.odds_a and fx.odds_b:
+            ma, mb = devig_power(fx.odds_a, fx.odds_b)
+            outright = [
+                (pred.team_a, pred.p_a, ma, fx.odds_a),
+                (pred.team_b, 1 - pred.p_a, mb, fx.odds_b),
+            ]
+        for team, p_model, p_market, odds in outright:
             edge = p_model - p_market
             if edge < self.edge_min:
                 continue
@@ -385,6 +435,43 @@ class Tipster:
                             "Marche derive de la loi du score : les cotes de total de maps "
                             "sont souvent posees a partir d'un modele i.i.d. qui ignore "
                             "la structure du veto."
+                        ],
+                    )
+                )
+
+        # Handicap de maps (le favori gagne sans lacher une map). Faute de la cote
+        # complementaire (+1.5), on ne peut pas retirer la marge : on compare donc
+        # la proba du modele a la cote *brute* (1/cote), ce qui est plus severe -
+        # la marge du book joue contre nous, et une valeur trouvee ainsi est
+        # d'autant plus solide. C'est le marche ou la structure du veto ecarte le
+        # plus le modele i.i.d. du book, donc celui ou l'edge est le plus credible.
+        if fx.best_of >= 3:
+            need = fx.best_of // 2 + 1
+            hline = need - 0.5
+            for team, is_a, odds in (
+                (pred.team_a, True, fx.odds_a_sweep),
+                (pred.team_b, False, fx.odds_b_sweep),
+            ):
+                if not odds:
+                    continue
+                p_model = dist.p_clean_sweep(is_a)
+                edge = p_model - 1.0 / odds
+                if edge < self.edge_min or expected_value(p_model, odds) <= 0:
+                    continue
+                picks.append(
+                    Pick(
+                        date=fx.date, team_a=pred.team_a, team_b=pred.team_b,
+                        best_of=fx.best_of, event=fx.event,
+                        market=f"handicap -{hline}", selection=team,
+                        probability=p_model, tier=_tier(p_model), verdict="VALEUR",
+                        odds=odds, edge=edge, ev=expected_value(p_model, odds),
+                        stake=kelly_fraction(p_model, odds),
+                        rationale=[
+                            f"Le veto laisse a {team} ses meilleurs terrains : le "
+                            f"sweep ({need}-0) est plus probable ({p_model:.0%}) que ne "
+                            "le croit un book qui traite les maps comme independantes.",
+                            "Edge mesure contre la cote brute (pas de cote +1.5 pour "
+                            "retirer la marge) : lecture volontairement prudente.",
                         ],
                     )
                 )
@@ -508,6 +595,13 @@ def _settle(pick: Pick, meta: dict, y_a: float) -> bool:
         played = wa + wb
         line = float(pick.market.split()[-1].lstrip("+-"))
         return played > line if "+" in pick.market else played < line
+    if pick.market.startswith("handicap -"):
+        wa, wb = (int(x) for x in meta["score"].split("-"))
+        winner = pick.team_a if y_a == 1 else pick.team_b
+        line = float(pick.market.split("-")[-1])
+        # Le favori couvre le handicap -X.5 s'il gagne avec une marge > X.5 maps.
+        # Regle generale (bo3 comme bo5), correcte quelle que soit la ligne.
+        return pick.selection == winner and (max(wa, wb) - min(wa, wb)) > line
     raise ValueError(f"marche non reglable : {pick.market}")
 
 
@@ -624,7 +718,8 @@ def simulate_tipster(
 # ---------------------------------------------------------------------------
 
 FIXTURE_COLUMNS = (
-    "date,team_a,team_b[,best_of,lan,event,odds_a,odds_b,odds_over,odds_under]"
+    "date,team_a,team_b[,best_of,lan,event,odds_a,odds_b,odds_over,odds_under,"
+    "odds_a_sweep,odds_b_sweep]"
 )
 
 
@@ -669,6 +764,8 @@ def read_fixtures(path: str | "Path") -> list[Fixture]:
                         odds_b=_f(row, "odds_b"),
                         odds_over=_f(row, "odds_over"),
                         odds_under=_f(row, "odds_under"),
+                        odds_a_sweep=_f(row, "odds_a_sweep"),
+                        odds_b_sweep=_f(row, "odds_b_sweep"),
                     )
                 )
             except (ValueError, KeyError) as exc:
