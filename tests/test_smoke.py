@@ -376,6 +376,42 @@ def test_carte_de_pronostics_complete():
             assert 0.5 <= pk.probability <= 1.0 or pk.market != "vainqueur"
 
 
+def test_mode_marche_n_annonce_jamais_une_ev_negative():
+    """Un edge positif face au marche devigue ne suffit pas : il faut une EV>0.
+
+    Sur un marche a marge, la proba debarrassee de la marge est battable sans
+    que le prix reel le soit. Le pronostiqueur ne doit alors rien annoncer.
+    """
+    from types import SimpleNamespace
+
+    from cs2edge.odds import devig_power, expected_value
+    from cs2edge.pronostic import Fixture, Tipster
+
+    # devig_power(1.55, 2.60) -> p_marche_a ~ 0.632 ; seuil de rentabilite 1/1.55 ~ 0.645.
+    oa, ob = 1.55, 2.60
+    ma, _mb = devig_power(oa, ob)
+    tip = Tipster.__new__(Tipster)      # instance nue : on teste _value_picks isolement
+    tip.edge_min = 0.0                  # neutralise le seuil d'edge, isole le garde-fou EV
+
+    def run(p_a):
+        pred = SimpleNamespace(team_a="a", team_b="b", p_a=p_a)
+        fx = Fixture(dt.date(2026, 1, 1), "a", "b", 3, False, "T", odds_a=oa, odds_b=ob)
+        return tip._value_picks(fx, pred, dist=None, rationale=[])
+
+    # Edge positif face au marche devigue mais sous le seuil de rentabilite : rien.
+    battable = 0.5 * (ma + 1.0 / oa)    # entre devig et 1/oa
+    assert battable > ma and expected_value(battable, oa) < 0
+    assert run(battable) == []
+
+    # Au-dessus du seuil de rentabilite : le pari est annonce, EV strictement positive.
+    picks = run(1.0 / oa + 0.02)
+    assert picks and all(p.odds and expected_value(p.probability, p.odds) > 0 for p in picks)
+
+    # Un ecart absurde est marque SUSPECT et ne recoit aucune mise.
+    suspect = run(0.995)
+    assert suspect and suspect[0].verdict == "SUSPECT" and suspect[0].stake == 0.0
+
+
 def test_handicap_en_mode_valeur():
     """Une cote de sweep declenche le marche handicap, meme sans cote vainqueur."""
     from types import SimpleNamespace

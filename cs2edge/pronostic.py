@@ -392,6 +392,14 @@ class Tipster:
             edge = p_model - p_market
             if edge < self.edge_min:
                 continue
+            # L'edge se mesure contre le marche *debarrasse de sa marge* ; l'EV,
+            # elle, contre la cote reellement offerte. Les deux ne coincident pas :
+            # sur un marche a forte marge, un edge positif peut cacher une EV
+            # negative (on bat la "vraie" proba du book sans battre son prix). On
+            # n'annonce jamais un pari a esperance negative - c'est le garde-fou
+            # que `find_value` applique deja cote `predict`, absent ici jusqu'ici.
+            if expected_value(p_model, odds) <= 0:
+                continue
             verdict = "VALEUR"
             extra = list(rationale)
             if edge > EDGE_ABSURDE:
@@ -401,14 +409,17 @@ class Tipster:
                     "Le marche sait probablement quelque chose que l'historique ignore "
                     "(remplacant, roster change, forfait). Verifier la compo avant d'agir."
                 )
+            # Un pari SUSPECT ne recoit aucune mise : on demande de verifier la
+            # compo *avant* d'agir, lui attribuer une taille de mise dirait le
+            # contraire. On l'affiche pour informer, pas pour le jouer.
+            stake = 0.0 if verdict == "SUSPECT" else kelly_fraction(p_model, odds)
             picks.append(
                 Pick(
                     date=fx.date, team_a=pred.team_a, team_b=pred.team_b,
                     best_of=fx.best_of, event=fx.event, market="vainqueur",
                     selection=team, probability=p_model, tier=_tier(p_model),
                     verdict=verdict, rationale=extra, odds=odds, edge=edge,
-                    ev=expected_value(p_model, odds),
-                    stake=kelly_fraction(p_model, odds),
+                    ev=expected_value(p_model, odds), stake=stake,
                 )
             )
 
@@ -421,7 +432,7 @@ class Tipster:
                 (f"total maps -{line}", 1 - p_over, mu, fx.odds_under),
             ):
                 edge = p_model - p_market
-                if edge < self.edge_min:
+                if edge < self.edge_min or expected_value(p_model, odds) <= 0:
                     continue
                 picks.append(
                     Pick(
@@ -806,9 +817,10 @@ def format_card(analyses: list[Analysis], verbose: bool = False) -> str:
             head = f"  -> {pk.market} : {pk.selection}   {pk.probability:.0%}"
             head += f"   [{pk.tier}]"
             if pk.odds:
+                mise = "suspendue" if pk.verdict == "SUSPECT" else f"{pk.stake:.1%}"
                 head += (
                     f"   cote {pk.odds:.2f} (juste {pk.fair_odds:.2f})"
-                    f"   edge {pk.edge:+.1%}   mise {pk.stake:.1%}"
+                    f"   edge {pk.edge:+.1%}   mise {mise}"
                 )
             else:
                 head += f"   cote juste {pk.fair_odds:.2f}"
