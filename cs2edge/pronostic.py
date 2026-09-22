@@ -42,6 +42,12 @@ SEUIL_ABSTENTION = TIER_INTERESSANT
 EDGE_MIN = 0.04
 # Au-dela, on ne croit plus le modele mais le marche (compo de derniere minute).
 EDGE_ABSURDE = 0.22
+# Mise maximale cumulee sur un meme match. Vainqueur, total de maps et handicap
+# tirent tous du meme resultat : ce sont des expressions correlees d'une seule
+# conviction, pas trois paris independants. Les additionner a pleine mise Kelly
+# reviendrait a miser deux a trois fois la taille voulue sur une position unique.
+# On plafonne donc leur somme au plafond d'un pari seul (voir odds.kelly_fraction).
+STAKE_CAP_PER_FIXTURE = 0.05
 
 
 @dataclass
@@ -209,6 +215,25 @@ def select_analysis_picks(
                     probability=p_sweep, tier=_tier(p_sweep), verdict="PRONOSTIC",
                 )
             )
+    return picks
+
+
+def _cap_correlated_stakes(
+    picks: list[Pick], cap: float = STAKE_CAP_PER_FIXTURE
+) -> list[Pick]:
+    """Ramene la mise cumulee d'un match sous `cap`, sans changer les probas.
+
+    Les paris d'un meme match sont correles : on garde leurs poids relatifs
+    (Kelly a bien dit lequel merite la plus grosse part) mais on ramene la somme
+    a la taille d'un pari seul. Fonction pure : elle ne modifie que `stake`.
+    """
+    total = sum(p.stake for p in picks if p.stake)
+    if total <= cap or total <= 0:
+        return picks
+    factor = cap / total
+    for p in picks:
+        if p.stake:
+            p.stake *= factor
     return picks
 
 
@@ -486,7 +511,7 @@ class Tipster:
                         ],
                     )
                 )
-        return picks
+        return _cap_correlated_stakes(picks)
 
     def card(self, fixtures: list[Fixture]) -> list[Analysis]:
         out = []

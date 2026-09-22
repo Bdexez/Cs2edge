@@ -439,6 +439,27 @@ def test_handicap_en_mode_valeur():
     assert tip._value_picks(fx2, pred, dist, []) == []
 
 
+def test_mises_correlees_plafonnees_par_match():
+    from cs2edge.pronostic import STAKE_CAP_PER_FIXTURE, Pick, _cap_correlated_stakes
+
+    def mk(stake):
+        p = Pick(dt.date(2026, 1, 1), "a", "b", 3, "", "vainqueur", "a", 0.7,
+                 "solide", "VALEUR")
+        p.stake = stake
+        return p
+
+    picks = [mk(0.04), mk(0.03), mk(0.02)]   # somme 0.09 > plafond
+    _cap_correlated_stakes(picks)
+    total = sum(p.stake for p in picks)
+    assert abs(total - STAKE_CAP_PER_FIXTURE) < 1e-9
+    # Les poids relatifs sont preserves : le plus gros reste le plus gros.
+    assert picks[0].stake > picks[1].stake > picks[2].stake
+    # En dessous du plafond, rien ne bouge.
+    petits = [mk(0.01), mk(0.02)]
+    _cap_correlated_stakes(petits)
+    assert abs(sum(p.stake for p in petits) - 0.03) < 1e-9
+
+
 def test_journal_archive_pointe_et_ne_double_pas():
     import tempfile
 
