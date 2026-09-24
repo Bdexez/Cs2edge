@@ -2,78 +2,78 @@
 
 # 🎯 cs2edge
 
-**Pronostiqueur calibré pour le CS2 professionnel.**
+**A calibrated tipster for professional CS2.**
 
-Il estime la probabilité de victoire avant le match, *choisit sur quels matchs il se prononce*,
-explique pourquoi, archive ses annonces — et publie son propre bilan.
+It estimates the win probability before the match, *chooses which matches it
+speaks on*, explains why, archives its calls — and publishes its own track record.
 
 ![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)
-![Moteur](https://img.shields.io/badge/moteur-NumPy%20seul-013243?logo=numpy&logoColor=white)
+![Engine](https://img.shields.io/badge/engine-NumPy%20only-013243?logo=numpy&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-32%20OK-2ea44f)
-![Probabilites](https://img.shields.io/badge/probabilit%C3%A9s-calibr%C3%A9es-1f6feb)
+![Probabilities](https://img.shields.io/badge/probabilities-calibrated-1f6feb)
 
 </div>
 
 ---
 
 > [!TIP]
-> **Deux règles ont guidé toute la construction.**
-> 1. **Des probabilités calibrées, pas des pronostics à l'aveugle.** Quand il annonce 70 %, l'équipe gagne environ 70 fois sur 100 — c'est vérifiable, et c'est vérifié.
-> 2. **Se taire vaut mieux que meubler.** Sur les données livrées, il écarte 17 % des matchs. La sélectivité *est* le produit : un pronostiqueur qui se prononce sur tout ne permet pas de distinguer ses convictions de ses devinettes.
+> **Two rules guided the whole build.**
+> 1. **Calibrated probabilities, not blind tips.** When it says 70 %, the team wins roughly 70 times out of 100 — that is verifiable, and it is verified.
+> 2. **Silence beats filler.** On the shipped data, it discards 17 % of matches. Selectivity *is* the product: a tipster who has an opinion on everything gives you no way to tell convictions from guesses.
 
-### En bref
+### In short
 
-- 🃏 **Une carte de pronostics** classée par conviction, chaque ligne argumentée par des chiffres.
-- 🗳️ **La structure du veto** déroulée map par map — là où les modèles naïfs se trompent le plus.
-- 💹 **Deux modes** : « qui gagne » sans cotes, « où le marché se trompe » avec cotes.
-- 📊 **Un bilan honnête** : annoncé *contre* observé, marge d'échantillonnage comprise.
-- 🧮 **Cœur en NumPy seul** : régression logistique, calibration et pipeline écrits à la main.
-
----
-
-## Sommaire
-
-- ⚡ [Démarrage rapide](#démarrage-rapide)
-- 🃏 [Le pronostiqueur](#le-pronostiqueur)
-- 🗳️ [Le veto, et pourquoi il change tout](#le-veto-et-pourquoi-il-change-tout)
-- 🔎 [L'analyse d'un match isolé](#lanalyse-dun-match-isolé)
-- 📊 [Rendre des comptes](#rendre-des-comptes)
-- ⚙️ [Comment ça marche](#comment-ça-marche)
-- 📥 [Brancher vos données](#brancher-vos-données)
-- 🔬 [Mesurer, et se méfier des chiffres flatteurs](#mesurer-et-se-méfier-des-chiffres-flatteurs)
-- 🧪 [Ce que la mesure a corrigé](#ce-que-la-mesure-a-corrigé)
-- ⚠️ [Ce que ça ne fait pas](#ce-que-ça-ne-fait-pas)
-- 🗂️ [Structure du code](#structure-du-code)
+- 🃏 **A slate of tips** ranked by conviction, each line backed by numbers.
+- 🗳️ **The veto structure** unrolled map by map — where naive models get it most wrong.
+- 💹 **Two modes**: "who wins" without odds, "where the market is wrong" with odds.
+- 📊 **An honest track record**: announced *versus* observed, sampling margin included.
+- 🧮 **NumPy-only core**: logistic regression, calibration and pipeline written by hand.
 
 ---
 
-## Démarrage rapide
+## Contents
+
+- ⚡ [Quick start](#quick-start)
+- 🃏 [The tipster](#the-tipster)
+- 🗳️ [The veto, and why it changes everything](#the-veto-and-why-it-changes-everything)
+- 🔎 [Analysing a single match](#analysing-a-single-match)
+- 📊 [Being accountable](#being-accountable)
+- ⚙️ [How it works](#how-it-works)
+- 📥 [Plugging in your own data](#plugging-in-your-own-data)
+- 🔬 [Measuring, and distrusting flattering numbers](#measuring-and-distrusting-flattering-numbers)
+- 🧪 [What measurement corrected](#what-measurement-corrected)
+- ⚠️ [What it does not do](#what-it-does-not-do)
+- 🗂️ [Code structure](#code-structure)
+
+---
+
+## Quick start
 
 ```bash
-git clone <ce dépôt> && cd cs2edge
+git clone <this repo> && cd cs2edge
 python -m venv .venv && .venv/bin/pip install -e .
 
-# optionnel : ajoute un GBDT à l'ensemble (+ export pandas)
+# optional: adds a GBDT to the ensemble (+ pandas export)
 .venv/bin/pip install -e ".[gbdt]"
 ```
 
-Le cœur ne dépend que de **NumPy** — la régression logistique, la calibration et tout le
-pipeline sont écrits à la main. `scikit-learn` est facultatif.
+The core depends only on **NumPy** — the logistic regression, the calibration and
+the whole pipeline are written by hand. `scikit-learn` is optional.
 
 ```bash
-cs2edge sample                              # historique synthétique pour tester
-cs2edge fixtures --out data/fixtures.csv    # matchs à venir (exemple)
-cs2edge slate --fixtures data/fixtures.csv  # 🃏 la carte de pronostics
-cs2edge tipster-backtest                    # 📊 le bilan du pronostiqueur
-cs2edge backtest --by-year                  # 📊 le bilan du modèle
-cs2edge ratings --top 15                    # classement Elo
+cs2edge sample                              # synthetic history to try it out
+cs2edge fixtures --out data/fixtures.csv    # upcoming matches (example)
+cs2edge slate --fixtures data/fixtures.csv  # 🃏 the slate of tips
+cs2edge tipster-backtest                    # 📊 the tipster's track record
+cs2edge backtest --by-year                  # 📊 the model's track record
+cs2edge ratings --top 15                    # Elo ranking
 cs2edge predict navi g2 --bo 3 --odds-a 1.75 --odds-b 2.10
-python -m tests.test_smoke                  # 32 tests de bout en bout
+python -m tests.test_smoke                  # 32 end-to-end tests
 ```
 
 ---
 
-## Le pronostiqueur
+## The tipster
 
 ```
 $ cs2edge slate --fixtures data/fixtures.csv --record data/journal.csv
@@ -105,76 +105,80 @@ ECARTES (2)
   9z vs faze               match trop serre (58%) pour un pronostic assume
 ```
 
-La carte est **classée par conviction**. Chaque pronostic porte un palier, une cote juste, et
-les raisons chiffrées qui l'ont produit — y compris celles qui vont **contre** le pronostic,
-parce qu'un raisonnement qui ne mentionne que ce qui l'arrange n'est pas un raisonnement.
+The slate is **ranked by conviction**. Every tip carries a tier, a fair price, and
+the quantified reasons that produced it — including the ones that argue
+**against** the tip, because reasoning that only mentions what suits it is not
+reasoning.
 
-### Deux modes, à ne pas confondre
+### Two modes, not to be confused
 
-|  | 🎯 sans cotes | 💹 avec cotes |
+|  | 🎯 without odds | 💹 with odds |
 |---|---|---|
-| **question posée** | « qui gagne ? » | « où le marché se trompe-t-il ? » |
-| **critère** | probabilité ≥ 60 % | écart ≥ 4 pts après retrait de la marge |
-| **on optimise** | le taux de réussite | la valeur attendue |
-| **taux de réussite** | élevé | **structurellement plus bas** |
+| **question asked** | "who wins?" | "where is the market wrong?" |
+| **criterion** | probability ≥ 60 % | edge ≥ 4 pts after removing the margin |
+| **what is optimised** | hit rate | expected value |
+| **hit rate** | high | **structurally lower** |
 
 > [!IMPORTANT]
-> Cette distinction est le point aveugle de la plupart des pronostiqueurs. En mode marché, la
-> valeur se trouve surtout sur des outsiders : on perd plus souvent, et c'est normal. Mettre en
-> avant son taux de réussite pour vendre des pronostics à cotes, c'est vendre une illusion.
+> This distinction is the blind spot of most tipsters. In market mode, value is
+> found mostly on underdogs: you lose more often, and that is normal. Advertising
+> your hit rate to sell odds-based tips is selling an illusion.
 
-Remplir **une seule** colonne de cotes d'un fichier de matchs bascule automatiquement en mode
-marché — chaque marché est évalué indépendamment.
+Filling in **a single** odds column of a fixtures file automatically switches to
+market mode — each market is evaluated independently.
 
-**En mode marché, deux garde-fous :**
+**In market mode, two safeguards:**
 
-- 🛡️ **Aucun pari à espérance négative.** L'écart se mesure contre la cote *sans sa marge* ;
-  l'espérance de gain, elle, contre la cote *réellement offerte*. Sur un marché à forte marge,
-  battre la « vraie » probabilité du bookmaker ne suffit pas à battre son prix — le pronostiqueur
-  n'annonce donc jamais un pari dont l'EV est négative.
-- 🎚️ **Mise cumulée plafonnée par match.** Vainqueur, total de maps et handicap tirent tous du
-  même résultat : les additionner à pleine mise Kelly reviendrait à miser deux à trois fois la
-  taille voulue sur une position unique. Leur somme est ramenée au plafond d'un pari seul.
+- 🛡️ **No negative-EV bet.** The edge is measured against the price *stripped of
+  its margin*; the expected value, however, against the price *actually offered*.
+  In a high-margin market, beating the bookmaker's "true" probability is not
+  enough to beat its price — so the tipster never announces a bet whose EV is
+  negative.
+- 🎚️ **Cumulative stake capped per match.** Winner, total maps and handicap all
+  draw on the same outcome: adding them at full Kelly stake would mean betting two
+  to three times the intended size on a single position. Their sum is brought back
+  to the cap of a single bet.
 
 ---
 
-## Le veto, et pourquoi il change tout
+## The veto, and why it changes everything
 
-Un bo3 ne se joue pas sur trois maps tirées au hasard : la map 1 est choisie par A, la map 2
-par B, et la décisive est ce qui survit aux bans. `cs2edge` déroule cette séquence et en déduit
-la **loi complète du score**.
+A bo3 is not played on three randomly drawn maps: map 1 is picked by A, map 2 by
+B, and the decider is whatever survives the bans. `cs2edge` unrolls that sequence
+and derives the **full score distribution** from it.
 
-Sur le vainqueur, l'effet est négligeable. Sur les marchés dérivés, il est massif — mesuré sur
-un pool polarisé :
+On the winner, the effect is negligible. On derived markets, it is massive —
+measured on a polarised pool:
 
-| | modèle i.i.d. | avec la structure du veto |
+| | i.i.d. model | with the veto structure |
 |---|---:|---:|
-| vainqueur | 50,0 % | 50,0 % |
-| victoire 2-0 | 25,0 % | **12,8 %** |
-| série en 3 maps | 50,0 % | **74,5 %** |
+| winner | 50.0 % | 50.0 % |
+| 2-0 win | 25.0 % | **12.8 %** |
+| 3-map series | 50.0 % | **74.5 %** |
 
-C'est exactement là que se trouvent les marchés « total de maps », « handicap » et « score
-exact » — donc exactement là où l'approximation coûte cher. Ces cotes sont souvent posées à
-partir d'un modèle sans veto.
+That is exactly where the "total maps", "handicap" and "correct score" markets
+live — so exactly where the approximation is expensive. Those prices are often set
+from a model with no veto.
 
 > [!NOTE]
-> Le **handicap -1.5** (le favori gagne sans lâcher une map : un 2-0 en bo3, un 3-0 en bo5) sort
-> directement de cette structure. Un pool déséquilibré rend le sweep bien plus probable qu'un
-> modèle i.i.d. ne le croit. Le pronostiqueur le porte à son palier de confiance — validé
-> jusque dans la bande 0,60–0,70 sur le backtest — et signale qu'il est **corrélé** au
-> vainqueur : on ne cumule pas deux mises pleines sur une même conviction.
+> The **-1.5 handicap** (the favourite wins without dropping a map: a 2-0 in a
+> bo3, a 3-0 in a bo5) falls straight out of that structure. An unbalanced pool
+> makes the sweep far more likely than an i.i.d. model believes. The tipster
+> raises it to its confidence tier — validated down into the 0.60–0.70 band on the
+> backtest — and flags that it is **correlated** with the winner: you do not stack
+> two full stakes on one and the same conviction.
 
-### L'effet d'enchaînement entre maps (momentum)
+### Map-to-map carry-over (momentum)
 
-Gagner la map précédente change-t-il la suivante, au-delà de ce que le modèle sait déjà des deux
-équipes ? `slate` le **mesure** sur l'historique et ne l'applique que s'il dépasse le bruit
-(`--momentum auto`, par défaut). C'est la seule quantité laissée à zéro par défaut, précisément
-parce qu'elle est facile à halluciner : beaucoup de modèles publics l'imposent à l'intuition, ce
-qui revient à inventer du signal.
+Does winning the previous map change the next one, beyond what the model already
+knows about the two teams? `slate` **measures** it on the history and only applies
+it if it exceeds the noise (`--momentum auto`, the default). It is the only
+quantity left at zero by default, precisely because it is easy to hallucinate:
+many public models impose it by intuition, which amounts to inventing signal.
 
 ---
 
-## L'analyse d'un match isolé
+## Analysing a single match
 
 ```
 $ cs2edge predict 9z faze --bo 3 --lan
@@ -208,31 +212,32 @@ $ cs2edge predict 9z faze --bo 3 --lan
                (derniere 2026-09-06), confrontations directes 12
 ```
 
-<sub>*(sortie réelle, sur les données synthétiques livrées avec le projet)*</sub>
+<sub>*(real output, on the synthetic data shipped with the project)*</sub>
 
-Avec des cotes, il dit s'il y a un écart exploitable **après retrait de la marge du bookmaker** —
-et refuse de conclure quand l'écart est trop beau pour être vrai.
+Given odds, it says whether there is an exploitable edge **after removing the
+bookmaker's margin** — and refuses to conclude when the edge is too good to be
+true.
 
 ---
 
-## Rendre des comptes
+## Being accountable
 
-Un pronostiqueur qui n'archive pas ses annonces n'est pas évaluable — et sans trace horodatée,
-rien n'empêche de se souvenir surtout des réussites.
+A tipster who does not archive their calls cannot be evaluated — and without a
+timestamped record, nothing stops anyone from mostly remembering the wins.
 
 ```bash
-cs2edge slate --fixtures f.csv --record data/journal.csv   # archive AVANT le match
-cs2edge settle --journal data/journal.csv                  # pointe APRÈS coup
-cs2edge journal --journal data/journal.csv                 # le bilan
+cs2edge slate --fixtures f.csv --record data/journal.csv   # archive BEFORE the match
+cs2edge settle --journal data/journal.csv                  # settle AFTERWARDS
+cs2edge journal --journal data/journal.csv                 # the track record
 ```
 
-Le journal est en **ajout seul** : le pointage complète les lignes, il ne les réécrit jamais.
-Les deux opérations sont idempotentes.
+The journal is **append-only**: settling completes the rows, it never rewrites
+them. Both operations are idempotent.
 
-### Le bilan du pronostiqueur
+### The tipster's track record
 
-`cs2edge tipster-backtest` rejoue toute la stratégie sur l'historique, en n'utilisant à chaque
-instant que le passé :
+`cs2edge tipster-backtest` replays the whole strategy over the history, using at
+each instant only the past:
 
 ```
 Bilan du pronostiqueur : 1376 matchs presentes, 235 ecartes (17%), 2147 pronostics emis.
@@ -250,78 +255,87 @@ Par marche :
   vainqueur             1141    83.3%     83.1%    -0.2%  +/-2.2%
 ```
 
-**Un palier doit tenir sa promesse.** La colonne `ecart` compare l'annoncé au réalisé. Un palier
-qui annonce 70 % et réalise 60 % ment à son lecteur, même s'il gagne plus souvent qu'il ne perd.
+**A tier has to keep its promise.** The `ecart` column compares the announced with
+the realised. A tier that announces 70 % and realises 60 % lies to its reader,
+even if it wins more often than it loses.
 
-**Un écart n'est un défaut que s'il dépasse le bruit.** La colonne `marge` donne deux erreurs
-types. En dessous, aucune conclusion — c'est le travers classique des bilans de pronostiqueurs,
-qui commentent vingt lignes comme si elles démontraient quelque chose.
+**A gap is only a defect if it exceeds the noise.** The `marge` column gives two
+standard errors. Below that, no conclusion — that is the classic failing of
+tipster track records, which comment on twenty rows as if they demonstrated
+something.
 
-> C'est ce backtest qui a façonné le produit, pas l'inverse : il a fait supprimer un palier,
-> corriger une calibration, et n'ouvrir les marchés dérivés que là où ils tiennent leur promesse.
+> This backtest shaped the product, not the other way round: it had a tier
+> removed, a calibration corrected, and derived markets opened only where they keep
+> their promise.
 
 ---
 
-## Comment ça marche
+## How it works
 
-**1. Elo, global et par map.** Une note globale par équipe, plus une note par couple
-(équipe, map). Trois raffinements par rapport à un Elo scolaire : marge de victoire amortie
-(écraser un outsider rapporte peu), K modulé par le tier de l'événement, et régression vers la
-moyenne en cas d'inactivité ou de changement de roster.
+**1. Elo, global and per map.** One global rating per team, plus one rating per
+(team, map) pair. Three refinements over a textbook Elo: damped margin of victory
+(crushing an underdog earns little), K modulated by the event tier, and regression
+towards the mean after inactivity or a roster change.
 
-**2. Features, en une seule passe chronologique.** Chaque ligne est calculée avec l'état des
-équipes *avant* le match, puis l'état est mis à jour. Le même objet sert à l'entraînement et à
-la prédiction en production — ce qui élimine les divergences train/serve. Au menu : écart Elo,
-avantage de pool, forme pondérée par récence, écart de rounds, historique direct, jours de
-repos, charge récente, force du calendrier, série en cours, ancienneté du cinq.
+**2. Features, in a single chronological pass.** Each row is computed with the
+state of the teams *before* the match, then the state is updated. The same object
+serves training and production prediction — which eliminates train/serve
+divergence. On the menu: Elo gap, pool advantage, recency-weighted form, round
+differential, head-to-head history, rest days, recent workload, strength of
+schedule, current streak, roster tenure.
 
-**3. Deux estimateurs indépendants.**
-- Un **modèle match** : régression logistique ridge sans constante, résolue par IRLS, plus un
-  GBDT optionnel.
-- Une **lecture par maps** : probabilité de gagner chacune des 7 maps de l'active duty, dont on
-  retire la meilleure et la pire (chacun bannit ce qui l'arrange), puis conversion en série.
+**3. Two independent estimators.**
+- A **match model**: ridge logistic regression without an intercept, solved by
+  IRLS, plus an optional GBDT.
+- A **map-level reading**: probability of winning each of the 7 active-duty maps,
+  from which the best and the worst are removed (each side bans what suits it),
+  then converted into a series.
 
-Ils sont mélangés à parts égales. Ce poids n'est pas choisi à l'intuition : il est mesuré par
-backtest, et `cs2edge backtest` affiche l'optimum sur *vos* données.
+They are blended in equal parts. That weight is not chosen by intuition: it is
+measured by backtest, and `cs2edge backtest` displays the optimum on *your* data.
 
 <details>
-<summary><b>4. Deux garde-fous structurels</b> — antisymétrie & décorrélation</summary>
+<summary><b>4. Two structural safeguards</b> — antisymmetry & decorrelation</summary>
 
 <br>
 
-*Antisymétrie.* Toutes les features sont des différences (A − B), le modèle n'a pas de constante,
-et il est entraîné sur les données miroir `(X, y)` et `(−X, 1−y)`. Résultat :
-`p(A bat B) + p(B bat A) = 1` à la précision machine. Sans cela, l'ordre dans lequel on saisit
-les équipes déplace la prédiction — c'est le bug silencieux classique de ce genre de système.
+*Antisymmetry.* All features are differences (A − B), the model has no intercept,
+and it is trained on the mirrored data `(X, y)` and `(−X, 1−y)`. Result:
+`p(A beats B) + p(B beats A) = 1` to machine precision. Without that, the order in
+which you enter the teams shifts the prediction — the classic silent bug of this
+kind of system.
 
-*Décorrélation.* Forme, pool, calendrier sont des quasi-doublons de l'écart Elo. Sans retrait, la
-pénalité ridge répartit ce signal commun au hasard entre les colonnes et `elo_diff` peut ressortir
-avec un poids *négatif*. Le modèle projette donc chaque colonne hors de l'écart Elo —
-transformation linéaire, qui ne change pas ce que le modèle peut représenter, seulement la
-lisibilité des coefficients.
+*Decorrelation.* Form, pool and schedule are near-duplicates of the Elo gap.
+Without removal, the ridge penalty spreads that shared signal at random across the
+columns and `elo_diff` can come out with a *negative* weight. The model therefore
+projects each column out of the Elo gap — a linear transformation, which does not
+change what the model can represent, only the readability of the coefficients.
 
 </details>
 
-**5. Du niveau map au niveau série.** Le veto est déroulé (chacun bannit son plus mauvais
-terrain, choisit son meilleur), ce qui donne les maps effectivement jouées et leur ordre. On en
-déduit la loi complète du score par énumération.
+**5. From map level to series level.** The veto is unrolled (each side bans its
+worst map, picks its best), which gives the maps actually played and their order.
+The full score distribution follows by enumeration.
 
-**6. Deux marginales calibrées, réconciliées.** Le vainqueur vient du modèle match ; la longueur
-de la série est calibrée séparément sur l'historique. Un ajustement proportionnel itératif impose
-les deux marges à la loi du score sans casser sa structure interne. Sans cette étape, le
-pronostic « vainqueur » et le pronostic « score exact » pourraient se contredire — défaut
-immédiatement visible pour un lecteur attentif.
+**6. Two calibrated marginals, reconciled.** The winner comes from the match model;
+the series length is calibrated separately on the history. An iterative
+proportional fitting imposes both margins on the score distribution without
+breaking its internal structure. Without that step, the "winner" tip and the
+"correct score" tip could contradict each other — a defect immediately visible to
+an attentive reader.
 
-**7. Calibration par température.** Un seul paramètre, ajusté sur un holdout temporel. Il préserve
-l'ordre et la symétrie, et corrige la sur-confiance systématique. Une probabilité mal calibrée est
-pire qu'inutile dès qu'on la compare à une cote.
+**7. Temperature calibration.** A single parameter, fitted on a temporal holdout.
+It preserves ordering and symmetry, and corrects systematic over-confidence. A
+badly calibrated probability is worse than useless as soon as you compare it to a
+price.
 
 ---
 
-## Brancher vos données
+## Plugging in your own data
 
-Le projet ne scrape rien : il lit un CSV **au niveau map**, ce qui le rend agnostique de la
-source (export HLTV, bo3.gg, Liquipedia, dataset Kaggle, base maison).
+The project scrapes nothing: it reads a **map-level** CSV, which makes it agnostic
+about the source (HLTV export, bo3.gg, Liquipedia, a Kaggle dataset, an in-house
+database).
 
 ```csv
 match_id,date,team_a,team_b,map,rounds_a,rounds_b,best_of,event,tier,lan,map_index
@@ -329,161 +343,164 @@ match_id,date,team_a,team_b,map,rounds_a,rounds_b,best_of,event,tier,lan,map_ind
 2380145,2026-08-14,Vitality,Spirit,nuke,10,13,3,IEM Cologne,s,1,1
 ```
 
-| colonne | requis | rôle |
+| column | required | role |
 |---|:---:|---|
-| `match_id` | ✅ | regroupe les maps d'une même série |
+| `match_id` | ✅ | groups the maps of one series |
 | `date`, `team_a`, `team_b`, `map`, `rounds_a`, `rounds_b` | ✅ | — |
-| `best_of` | — | défaut 3 |
-| `tier` | — | `s/a/b/c/d` — pondère le poids du résultat dans l'Elo |
+| `best_of` | — | defaults to 3 |
+| `tier` | — | `s/a/b/c/d` — weights the result's influence on the Elo |
 | `lan` | — | LAN vs online |
-| `map_index` | — | ordre des maps dans la série |
-| `roster_a`, `roster_b` | — | pseudos séparés par des virgules — détecte les changements d'effectif |
+| `map_index` | — | order of the maps within the series |
+| `roster_a`, `roster_b` | — | comma-separated handles — detects roster changes |
 
-### Les matchs à venir
+### Upcoming matches
 
 ```csv
 date,team_a,team_b,best_of,lan,event,odds_a,odds_b,odds_over,odds_under,odds_a_sweep,odds_b_sweep
 2026-09-14,Vitality,Spirit,3,1,IEM Cologne,1.75,2.10,1.95,1.85,3.40,6.50
 ```
 
-Seules `date`, `team_a`, `team_b` sont requises. Les cotes sont facultatives et font basculer du
-mode analyse au mode marché. `odds_a_sweep` / `odds_b_sweep` sont les cotes du **handicap de
-maps** (l'équipe gagne sans lâcher une map) : c'est le marché où l'edge du modèle est le plus
-grand, parce que les books l'ouvrent souvent depuis un modèle i.i.d. aveugle au veto. Faute de la
-cote `+1.5` complémentaire pour retirer la marge, l'edge y est mesuré contre la cote brute — une
-lecture volontairement prudente.
+Only `date`, `team_a`, `team_b` are required. Odds are optional and switch it from
+analysis mode to market mode. `odds_a_sweep` / `odds_b_sweep` are the **map
+handicap** prices (the team wins without dropping a map): that is the market where
+the model's edge is largest, because books often open it from an i.i.d. model
+blind to the veto. Lacking the complementary `+1.5` price to strip the margin, the
+edge there is measured against the raw price — a deliberately conservative reading.
 
-Les noms d'équipes sont normalisés automatiquement (`Natus Vincere` → `navi`, `de_Dust2` →
-`dust2`). Depuis du code, `sources.from_records()` accepte directement des dicts issus d'une API.
+Team names are normalised automatically (`Natus Vincere` → `navi`, `de_Dust2` →
+`dust2`). From code, `sources.from_records()` accepts dicts coming from an API
+directly.
 
 > [!TIP]
-> `roster_a`/`roster_b` sont absents de la plupart des exports publics, et c'est dommage : un
-> changement de deux joueurs invalide une bonne partie de l'historique d'une équipe, et le modèle
-> sait en tenir compte quand on lui donne l'information.
+> `roster_a`/`roster_b` are missing from most public exports, and that is a shame:
+> a two-player change invalidates a good part of a team's history, and the model
+> knows how to account for it when you give it the information.
 
 ---
 
-## Mesurer, et se méfier des chiffres flatteurs
+## Measuring, and distrusting flattering numbers
 
 ```bash
 cs2edge backtest --by-year
 ```
 
-Le backtest est **walk-forward** : entraînement sur le passé uniquement, prédiction du bloc
-suivant, réentraînement, on avance. C'est le seul protocole honnête ici. Une validation croisée
-aléatoire donnerait des scores nettement meilleurs et entièrement faux, parce que la note Elo
-d'un match donné encode déjà des matchs postérieurs.
+The backtest is **walk-forward**: train on the past only, predict the next block,
+retrain, move on. It is the only honest protocol here. A random cross-validation
+would give markedly better scores and entirely false ones, because a given match's
+Elo rating already encodes later matches.
 
-Le rapport affiche le **log-loss** et un `skill score` (réduction du log-loss face au pile ou
-face), comparés à trois références : modèle match seul, lecture par maps seule, et Elo brut.
-
-> [!WARNING]
-> **L'accuracy est un mauvais indicateur.** L'Elo brut affiche souvent une accuracy *supérieure*
-> au modèle complet tout en ayant un log-loss nettement pire : il désigne un peu mieux le
-> vainqueur, mais avec des probabilités mal calibrées — donc inutilisables face à un marché. Ce
-> sont le **log-loss** et l'**ECE** qui comptent.
-
-Le rapport affiche aussi une courbe de fiabilité : pour chaque tranche de probabilité annoncée, la
-fréquence réellement observée. Un écart systématique de plus de 5 points dans une tranche bien
-peuplée signale un problème de calibration.
-
----
-
-## Ce que la mesure a corrigé
-
-Ces décisions ne viennent pas d'une intuition sur le CS, mais d'un chiffre qui disait que quelque
-chose n'allait pas.
-
-**🗑️ Un palier a été supprimé.** Un troisième niveau « serré » couvrait la bande 57–60 %. Sur
-l'historique : 62 pronostics, 58,6 % annoncés, 66,1 % observés. Une bande de trois points, un
-échantillon minuscule, un écart entièrement compatible avec le bruit — du hasard présenté comme un
-jugement. Deux paliers qui tiennent valent mieux que trois dont un ment.
-
-**🔧 Un paramètre a été essayé puis retiré.** Le marché « total de maps » annonçait 76,9 % et
-réalisait 87,4 %. Première tentative : un paramètre de « dispersion ». Instable d'un fold à l'autre
-(0,10 à 1,05) sans corriger le défaut mesuré. Le vrai coupable était ailleurs : la loi du score
-était ancrée sur une probabilité de vainqueur volontairement prudente, ce qui tirait toute la
-distribution vers l'équilibre. La bonne réponse n'était pas de déformer le veto, mais de calibrer
-la seconde marginale comme on calibrait déjà la première. Après correction : **+2,0 % d'écart au
-lieu de +10,5 %**.
-
-**➕ Les marchés dérivés ont été ouverts plus largement.** Total de maps et handicap étaient
-réservés au palier solide (≥ 0,70). Mesuré sur douze mondes simulés, la bande 0,60–0,70 tient sa
-promesse (total −0,5 %, handicap +1,3 %) : les émettre dès le seuil d'abstention a **assaini le
-palier « intéressant »** (de −5,1 % à −1,1 %) et augmenté la couverture de **~40 %**, sans qu'aucun
-marché ne sorte de sa marge.
-
----
-
-## Ce que ça ne fait pas
+The report shows the **log-loss** and a `skill score` (log-loss reduction against a
+coin flip), compared against three references: match model alone, map-level
+reading alone, and raw Elo.
 
 > [!WARNING]
-> **Les données livrées sont synthétiques.** `cs2edge sample` simule un historique crédible, ce qui
-> permet de faire tourner toute la chaîne sans données réelles — mais un monde simulé est
-> **beaucoup plus prévisible** que le vrai. Les ~78 % d'accuracy obtenus dessus ne veulent rien
-> dire. Sur des données réelles, attendez-vous à **62–68 % d'accuracy** et un skill score de
-> **0,10–0,20**. Un chiffre nettement au-dessus est un signe de fuite temporelle, pas de réussite.
+> **Accuracy is a poor indicator.** Raw Elo often shows *higher* accuracy than the
+> full model while having a markedly worse log-loss: it picks the winner slightly
+> better, but with badly calibrated probabilities — so unusable against a market.
+> **Log-loss** and **ECE** are what count.
 
-**Le plafond est bas, et il est structurel.** Le CS2 pro est un sport à forte variance : une map
-se joue en 24 rounds, un bo3 se retourne sur deux duels. Une partie irréductible du résultat n'est
-pas prévisible à partir de l'historique, quel que soit le modèle.
-
-**Le modèle ignore ce qui n'est pas dans les résultats passés** — remplaçant de dernière minute,
-joueur malade, problème de visa, transfert annoncé la veille, enjeu sportif nul, décalage horaire,
-panne matérielle. C'est pour cela que `predict` plafonne la confiance à 96 %, rétrécit les
-probabilités quand l'historique est mince ou périmé, et vous avertit en cas de désaccord massif
-avec le marché — dans ce cas, c'est presque toujours le marché qui sait quelque chose.
-
-**Un taux de réussite élevé ne prouve rien.** Annoncer que le premier mondial bat le trentième, et
-avoir raison 90 % du temps, ne demande aucun modèle. Le bilan affiche donc *annoncé contre observé*
-plutôt qu'un taux brut : la seule question intéressante est de savoir si le chiffre annoncé était
-juste.
-
-**Le marché est un adversaire sérieux.** Les cotes de clôture des gros bookmakers sont, sur le long
-terme, mieux calibrées que ce que produit ce genre de modèle. Les fonctions de `odds.py` (retrait
-de marge par puissance, valeur attendue, Kelly fractionnaire plafonné au quart) rendent la
-comparaison honnête — elles ne promettent pas un rendement.
+The report also shows a reliability curve: for each band of announced probability,
+the frequency actually observed. A systematic gap of more than 5 points in a
+well-populated band signals a calibration problem.
 
 ---
 
-## Structure du code
+## What measurement corrected
+
+These decisions do not come from an intuition about CS, but from a number saying
+something was wrong.
+
+**🗑️ A tier was removed.** A third "tight" level covered the 57–60 % band. Over the
+history: 62 tips, 58.6 % announced, 66.1 % observed. A three-point band, a tiny
+sample, a gap entirely compatible with noise — chance presented as judgement. Two
+tiers that hold beat three of which one lies.
+
+**🔧 A parameter was tried, then dropped.** The "total maps" market announced 76.9 %
+and realised 87.4 %. First attempt: a "dispersion" parameter. Unstable from fold to
+fold (0.10 to 1.05) without correcting the measured defect. The real culprit was
+elsewhere: the score distribution was anchored on a deliberately conservative winner
+probability, which pulled the whole distribution towards the balance point. The right
+answer was not to distort the veto, but to calibrate the second marginal as the first
+one already was. After correction: **+2.0 % gap instead of +10.5 %**.
+
+**➕ Derived markets were opened more widely.** Total maps and handicap were reserved
+for the solid tier (≥ 0.70). Measured over twelve simulated worlds, the 0.60–0.70 band
+keeps its promise (total −0.5 %, handicap +1.3 %): issuing them from the abstention
+threshold onwards **cleaned up the "interesting" tier** (from −5.1 % to −1.1 %) and
+increased coverage by **~40 %**, without any market stepping outside its margin.
+
+---
+
+## What it does not do
+
+> [!WARNING]
+> **The shipped data is synthetic.** `cs2edge sample` simulates a credible history,
+> which makes it possible to run the whole chain without real data — but a simulated
+> world is **far more predictable** than the real one. The ~78 % accuracy obtained on
+> it means nothing. On real data, expect **62–68 % accuracy** and a skill score of
+> **0.10–0.20**. A number markedly above that is a sign of temporal leakage, not of
+> success.
+
+**The ceiling is low, and it is structural.** Pro CS2 is a high-variance sport: a map
+is played over 24 rounds, a bo3 turns on two duels. An irreducible part of the outcome
+is not predictable from history, whatever the model.
+
+**The model ignores anything that is not in past results** — a last-minute stand-in, a
+sick player, a visa problem, a transfer announced the day before, nothing at stake, jet
+lag, a hardware failure. That is why `predict` caps confidence at 96 %, shrinks
+probabilities when the history is thin or stale, and warns you in case of a massive
+disagreement with the market — in that case, it is almost always the market that knows
+something.
+
+**A high hit rate proves nothing.** Announcing that the world number one beats number
+thirty, and being right 90 % of the time, requires no model. The track record therefore
+shows *announced versus observed* rather than a raw rate: the only interesting question
+is whether the announced number was right.
+
+**The market is a serious opponent.** The closing prices of the big bookmakers are, over
+the long run, better calibrated than what this kind of model produces. The functions in
+`odds.py` (power-method margin removal, expected value, fractional Kelly capped at a
+quarter) make the comparison honest — they do not promise a return.
+
+---
+
+## Code structure
 
 ```
 cs2edge/
-  schema.py     modèle de données, normalisation des noms, lecture CSV
-  sources.py    entrées de données + simulateur d'historique
-  ratings.py    Elo global et par map (marge, tier, inactivité, roster)
-  features.py   extraction sans fuite temporelle, construction du dataset
-  model.py      régression logistique IRLS, décorrélation, calibration, ensemble
-  metrics.py    log-loss, Brier, ECE, courbe de fiabilité
-  backtest.py   walk-forward, comparaison des estimateurs
-  odds.py       retrait de marge, valeur attendue, Kelly
-  markets.py    veto, loi du score, marchés dérivés, calibration des marges
-  predict.py    orchestration et rapport de prédiction
-  pronostic.py  sélectivité, paliers, argumentaire, backtest du pronostiqueur
-  journal.py    archivage des annonces, pointage, bilan
-  cli.py        interface en ligne de commande
-tests/          32 tests de bout en bout, sans dépendance externe
+  schema.py     data model, name normalisation, CSV reading
+  sources.py    data inputs + history simulator
+  ratings.py    global and per-map Elo (margin, tier, inactivity, roster)
+  features.py   leak-free extraction, dataset construction
+  model.py      IRLS logistic regression, decorrelation, calibration, ensemble
+  metrics.py    log-loss, Brier, ECE, reliability curve
+  backtest.py   walk-forward, comparison of the estimators
+  odds.py       margin removal, expected value, Kelly
+  markets.py    veto, score distribution, derived markets, margin calibration
+  predict.py    orchestration and prediction report
+  pronostic.py  selectivity, tiers, reasoning, tipster backtest
+  journal.py    archiving of calls, settling, track record
+  cli.py        command-line interface
+tests/          32 end-to-end tests, no external dependency
 ```
 
-Les règles de décision du pronostiqueur vivent dans une **fonction pure**, appelée à la fois par
-le service en direct et par son propre backtest. Une logique de décision écrite en deux
-exemplaires finit toujours par diverger, et le bilan publié devient faux sans que personne ne
-s'en aperçoive.
+The tipster's decision rules live in a **pure function**, called both by the live
+service and by its own backtest. Decision logic written in two copies always ends up
+diverging, and the published track record becomes false without anyone noticing.
 
 ---
 
 <div align="center">
 
-### Sur l'usage
+### On usage
 
 </div>
 
-Cet outil est un **instrument de mesure** : il quantifie ce que l'historique permet de dire, et il
-est explicite sur ce qu'il ignore. Ses pronostics valent pour l'analyse d'un match — ils ne
-constituent ni un conseil ni une garantie, et un modèle calibré ne supprime pas la variance : il
-la chiffre.
+This tool is a **measuring instrument**: it quantifies what the history allows one to
+say, and it is explicit about what it ignores. Its tips are worth something for
+analysing a match — they constitute neither advice nor a guarantee, and a calibrated
+model does not remove variance: it quantifies it.
 
-> Un pronostic à 70 % se trompe trois fois sur dix. C'est le comportement attendu, pas une
-> anomalie — et c'est aussi pourquoi un pronostiqueur ne se juge que sur des centaines d'annonces,
-> jamais sur la dernière.
+> A 70 % tip is wrong three times out of ten. That is the expected behaviour, not an
+> anomaly — and it is also why a tipster is only judged over hundreds of calls, never
+> over the last one.
