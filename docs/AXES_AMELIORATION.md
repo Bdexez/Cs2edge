@@ -104,3 +104,105 @@ ses résultats et aligner les frontières des folds sur les journées.
 Critère de réussite : ajouter des résultats postérieurs ne change pas une
 prédiction historique reconstruite ; l’ancienneté est calculée à la date réelle
 de la demande ; aucune information indisponible n’entre dans un fold.
+
+**4. Identifier les matchs dans le journal**
+
+Dans [journal.py](../cs2edge/journal.py#L94), l’index de règlement utilise
+seulement `(date, paire d’équipes)`. Deux rencontres entre les mêmes équipes
+le même jour s’écrasent. Le jeu fourni contient déjà 19 clés de ce type avec
+plusieurs rencontres.
+
+Reproduction minimale : deux BO1 `a` contre `b`, le même jour, dans deux
+événements différents. A gagne le premier et perd le second. Le pronostic
+enregistré pour le premier événement est réglé **« perdu », score 0-1**, car
+le second résultat a remplacé le premier dans l’index. Le champ `event` du
+journal n’intervient pas dans le rapprochement.
+
+Autre reproduction : `record([pick, pick], path)` ajoute **deux lignes** à un
+journal vide. L’ensemble `known` n’est pas mis à jour pendant l’ajout. L’identité
+du pronostic ne contient pas non plus d’identifiant de rencontre.
+
+Changement proposé : propager un identifiant stable de rencontre depuis les
+fixtures jusqu’au règlement. Pour les anciennes lignes sans identifiant,
+conserver les candidats et laisser les cas ambigus en attente. Dédupliquer
+aussi à l’intérieur d’un même lot. Ajouter l’heure d’émission, la date limite
+des données et la version du modèle pour rendre chaque annonce vérifiable.
+Une transaction SQLite ou une écriture atomique avec verrouillage renforcerait
+ensuite la résistance aux interruptions et aux écritures concurrentes.
+
+Critère de réussite : deux rencontres le même jour restent distinctes ; changer
+l’ordre des résultats ne change pas le règlement ; un doublon dans le même lot
+crée une seule ligne ; une ambiguïté ne produit aucun règlement automatique.
+
+**5. Valider et préserver les données importées**
+
+Dans [schema.py](../cs2edge/schema.py#L167), l’import vérifie les colonnes et
+convertit les valeurs, mais il accepte par exemple `rounds_a=-2`,
+`rounds_b=13.9` et `best_of=2`. Le score décimal est silencieusement tronqué à
+13. Une série BO3 contenant seulement une victoire de map obtient déjà un
+vainqueur via `Match.a_won`, sans statut indiquant qu’elle est incomplète.
+
+Deux pertes ou divergences de données sont également reproduites :
+
+- `write_csv` puis `read_csv` transforme un roster de cinq joueurs en tuple
+  vide : les colonnes de roster ne sont pas écrites.
+- `sources.from_records` transforme la chaîne `lan="false"` en `True`, car
+  l’import API utilise `bool(...)`, contrairement à l’import CSV.
+
+Changement proposé : partager la normalisation et les validations entre CSV,
+API et construction des séries. Vérifier les scores entiers, les formats
+supportés, la cohérence des équipes et des indices de map, les doublons et
+le statut final des séries. Prévoir explicitement les forfaits et résultats
+partiels. Préserver les rosters à l’export et produire un bilan des lignes
+rejetées ou exclues.
+
+Critère de réussite : les entrées invalides donnent une erreur localisée ; une
+série partielle ne devient pas une cible d’apprentissage finale ; un aller-retour
+CSV conserve tous les champs métier ; CSV et API interprètent les mêmes
+valeurs de façon identique.
+
+**6. Corriger les handicaps BO5 du catalogue**
+
+Dans [markets.py](../cs2edge/markets.py#L254), `build_markets` étiquette le
+sweep « handicap -1.5 » pour les BO3 et les BO5. En BO5, cette ligne couvre
+les scores 3-0 et 3-1 ; le sweep seul correspond à -2.5.
+
+Avec cinq maps indépendantes à 50 %, le catalogue annonce **12,5 %** pour
+`a -1.5`, alors que la somme `P(3-0) + P(3-1)` vaut **31,25 %**.
+Le handicap positif utilise lui aussi le complément du sweep et doit être
+aligné sur la ligne affichée.
+
+Changement proposé : soit étiqueter ces lignes avec `need - 0.5`, soit calculer
+leur probabilité en additionnant les scores qui couvrent réellement le handicap.
+Les picks de `select_analysis_picks` calculent déjà une ligne de sweep adaptée
+au format ; le défaut constaté concerne le catalogue `build_markets`.
+
+Critère de réussite : pour chaque format et chaque signe, la probabilité d’une
+ligne égale la somme des probabilités des scores qui la couvrent.
+
+**7. Corriger la portée des options CLI**
+
+Dans [cli.py](../cs2edge/cli.py#L354), les options communes sont installées
+sur le parseur racine et sur les sous-commandes. Les valeurs par défaut de
+la sous-commande écrasent celles déjà lues.
+
+Reproduction avec `build_parser().parse_args(...)` :
+
+```text
+--data /tmp/custom.csv --no-gbdt predict navi g2
+  -> data='data/sample_matches.csv', no_gbdt=False
+
+predict navi g2 --data /tmp/custom.csv --no-gbdt
+  -> data='/tmp/custom.csv', no_gbdt=True
+```
+
+Cela touche aussi les options communes `--warmup` et `--elo-config`.
+Une commande peut donc analyser le jeu synthétique alors que l’utilisateur
+a explicitement demandé son propre fichier.
+
+Changement proposé : définir les valeurs par défaut une seule fois et empêcher
+les options absentes de la sous-commande d’écraser celles du parseur racine,
+par exemple avec `argparse.SUPPRESS` sur ce second niveau.
+
+Critère de réussite : déplacer chaque option commune avant ou après la
+sous-commande produit les mêmes paramètres et utilise le même fichier.
