@@ -206,3 +206,69 @@ par exemple avec `argparse.SUPPRESS` sur ce second niveau.
 
 Critère de réussite : déplacer chaque option commune avant ou après la
 sous-commande produit les mêmes paramètres et utilise le même fichier.
+
+**8. Renforcer les données et la validation du modèle**
+
+Le CSV fourni contient 4 758 maps, 2 416 séries et aucun roster renseigné.
+Dans **395 séries, soit 16,35 %**, une même map apparaît plusieurs fois.
+Le générateur utilise des tirages avec remise dans
+[sources.py](../cs2edge/sources.py#L194), tandis que le veto projeté retire
+les maps du pool. Les données de démonstration et la structure évaluée
+ne suivent donc pas le même mécanisme de sélection.
+
+Les tests d’apprentissage emploient le régime synthétique par défaut
+`facile`, avec quelques graines fixes. Le régime `realiste` disponible dans
+le code n’est pas utilisé par ces tests. Le pool `ACTIVE_DUTY` est également
+constant sur toute la période. Enfin, les marges de `TipsterRecord.by`
+comptent les pronostics, bien que plusieurs pronostics d’un même match
+dépendent du même résultat.
+
+Changements proposés :
+
+- Produire les séries simulées avec des maps distinctes, des dates de départ
+  fixes, plusieurs graines et les deux régimes ; mesurer l’écart au générateur
+  avec vérité latente lorsque c’est pertinent.
+- Constituer un jeu réel avec provenance, identifiants stables, dates de
+  disponibilité et période finale réservée. Versionner le pool de maps et
+  intégrer les effectifs connus avant le match. Le gain de ces informations
+  reste une hypothèse à mesurer sur ce jeu.
+- Publier les différences de log-loss et de Brier face aux références avec
+  des intervalles obtenus par rééchantillonnage des matchs ou blocs temporels.
+  Regrouper les marchés corrélés d’une même rencontre lors du calcul des marges.
+- Archiver toutes les fixtures présentées, y compris les abstentions, pour
+  calculer le taux de couverture réel du journal. Actuellement `scorecard`
+  compte les lignes réglées comme des matchs et fixe les abstentions à zéro.
+- Ajouter une CI pour les versions de Python prises en charge, le cœur NumPy
+  et l’option GBDT, avec les vérifications métier des points précédents. Aucun
+  workflow de CI n’est présent dans les fichiers suivis examinés.
+
+Critère de réussite : un rapport reproductible distingue les jeux synthétiques
+du jeu réel, mesure un gain sur une période jamais utilisée pour le choisir et
+indique le nombre de rencontres distinctes derrière ses marges statistiques.
+
+**Vérifications effectuées et portée**
+
+`python -m tests.test_smoke` : **32/32 tests passent**.
+
+`python -m cs2edge backtest --no-gbdt --by-year` : **1 376 matchs évalués**,
+log-loss **0,4285**, Brier **0,1400**, exactitude **79,3 %**. Ces valeurs
+proviennent du CSV synthétique fourni et du pipeline actuel décrit plus haut.
+
+Les écarts de garde-fou ont été mesurés en réutilisant les sorties brutes des
+mêmes modèles entraînés. Le chevauchement du réglage a été mesuré en traçant
+les identifiants renvoyés par les véritables appels à `walk_forward` dans
+`tune`, avec une grille réduite. Les cas de journal, d’import et de BO5 ont
+été reproduits dans des fichiers temporaires, sans modifier les données fournies.
+
+Scikit-learn est absent de cet environnement : le fonctionnement numérique du
+GBDT et sa sauvegarde complète restent à couvrir. L’écart de configuration
+GBDT décrit au point 1 a été vérifié sur les objets créés et dans les appels
+du code, sans entraîner ce composant.
+
+Après les correctifs de cohérence et de données, un prolongement utile serait
+de sauvegarder un analyseur complet : modèles match et maps, configuration Elo,
+état des équipes, calibration, version des features et empreinte des données.
+Aujourd’hui `train` sauvegarde seulement le modèle match et les commandes de
+prédiction réentraînent l’analyseur. Un tel artefact faciliterait la reproduction
+exacte d’une annonce et permettrait un cache invalidé explicitement à chaque
+changement de données ou de configuration.
