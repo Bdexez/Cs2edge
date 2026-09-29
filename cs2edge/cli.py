@@ -37,6 +37,8 @@ def _analyzer(args, train: bool = True) -> Analyzer:
     if elo is not None:
         print(f"Constantes de notation chargees depuis {args.elo_config}", file=sys.stderr)
     an = Analyzer(elo_config=elo, warmup_maps=args.warmup).load_csv(path)
+    if not an.matches:
+        raise ValueError(f"aucun resultat exploitable dans {path}")
     print(
         f"{len(an.maps)} maps, {len(an.matches)} matchs, {len(an.known_teams())} equipes "
         f"({an.matches[0].date} -> {an.matches[-1].date}) | "
@@ -329,6 +331,18 @@ def cmd_tune(args) -> int:
     return 0
 
 
+def _common_options(parser: argparse.ArgumentParser) -> None:
+    # Une option absente ne doit pas ecraser celle lue avant la sous-commande.
+    parser.add_argument("--data", default=argparse.SUPPRESS,
+                        help=f"CSV de resultats (defaut {DEFAULT_DATA})")
+    parser.add_argument("--warmup", type=int, default=argparse.SUPPRESS,
+                        help="maps minimum par equipe (defaut 12)")
+    parser.add_argument("--no-gbdt", action="store_true", default=argparse.SUPPRESS,
+                        help="regression logistique seule")
+    parser.add_argument("--elo-config", default=argparse.SUPPRESS,
+                        help="JSON de constantes de notation (voir `tune`)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="cs2edge",
@@ -353,14 +367,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Options communes, acceptees avant comme apres la sous-commande.
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--data", default=DEFAULT_DATA,
-                        help=f"CSV de resultats (defaut {DEFAULT_DATA})")
-    common.add_argument("--warmup", type=int, default=12,
-                        help="maps minimum par equipe avant d'utiliser un match (defaut 12)")
-    common.add_argument("--no-gbdt", action="store_true", help="regression logistique seule")
-    common.add_argument("--elo-config", help="JSON de constantes de notation (voir `tune`)")
-    for a in common._actions:
-        p._add_action(a)
+    _common_options(common)
+    _common_options(p)
+    p.set_defaults(data=DEFAULT_DATA, warmup=12, no_gbdt=False, elo_config=None)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("sample", help="genere un historique synthetique", parents=[common])
