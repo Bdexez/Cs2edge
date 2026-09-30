@@ -250,11 +250,17 @@ def build_markets(
                                 else f"{team_b} {wb}-{wa}", p))
 
     if dist.best_of >= 3:
-        # Handicap map : -1.5 = gagner sans perdre de map.
-        lines.append(MarketLine("handicap -1.5", team_a, dist.p_clean_sweep(True)))
-        lines.append(MarketLine("handicap -1.5", team_b, dist.p_clean_sweep(False)))
-        lines.append(MarketLine("handicap +1.5", team_a, 1 - dist.p_clean_sweep(False)))
-        lines.append(MarketLine("handicap +1.5", team_b, 1 - dist.p_clean_sweep(True)))
+        # En BO5, -1.5 couvre aussi 3-1 ; seul -2.5 exige un sweep.
+        for margin in range(1, need):
+            handicap = margin + 0.5
+            pa = sum(p for (wa, wb), p in dist.scores.items() if wa - wb > handicap)
+            pb = sum(p for (wa, wb), p in dist.scores.items() if wb - wa > handicap)
+            lines.extend([
+                MarketLine(f"handicap -{handicap}", team_a, pa),
+                MarketLine(f"handicap -{handicap}", team_b, pb),
+                MarketLine(f"handicap +{handicap}", team_a, 1 - pb),
+                MarketLine(f"handicap +{handicap}", team_b, 1 - pa),
+            ])
 
         line = dist.best_of - 0.5  # 2.5 en bo3, 4.5 en bo5
         p_over = sum(p for (wa, wb), p in dist.scores.items() if wa + wb > line)
