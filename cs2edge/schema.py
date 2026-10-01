@@ -7,6 +7,7 @@ import datetime as dt
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from typing import Iterable, Iterator, Sequence
 
 ACTIVE_DUTY = (
@@ -106,6 +107,21 @@ class MapResult:
     roster_a: tuple[str, ...] = ()
     roster_b: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        for name in ("match_id", "team_a", "team_b", "map_name"):
+            if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
+                raise ValueError(f"{name} doit etre renseigne")
+        if self.team_a == self.team_b:
+            raise ValueError("une equipe ne joue pas contre elle-meme")
+        for name in ("rounds_a", "rounds_b", "map_index", "best_of"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} doit etre un entier positif ou nul")
+        if self.best_of not in (1, 3, 5):
+            raise ValueError(f"format non gere : bo{self.best_of}")
+        if self.rounds_a == self.rounds_b:
+            raise ValueError("une map terminee ne peut pas etre nulle")
+
     @property
     def winner(self) -> str:
         return self.team_a if self.rounds_a > self.rounds_b else self.team_b
@@ -147,7 +163,14 @@ class Match:
 
     @property
     def a_won(self) -> int:
+        if not self.is_complete:
+            raise ValueError(f"serie incomplete : {self.match_id}")
         return int(self.maps_a > self.maps_b)
+
+    @property
+    def is_complete(self) -> bool:
+        need = self.best_of // 2 + 1
+        return max(self.maps_a, self.maps_b) == need and min(self.maps_a, self.maps_b) < need
 
     @property
     def winner(self) -> str:
@@ -155,13 +178,53 @@ class Match:
 
 
 def _to_bool(v) -> bool:
-    return str(v).strip().lower() in {"1", "true", "yes", "y", "lan", "oui"}
+    value = str(v).strip().lower() if v is not None else ""
+    if value in {"1", "true", "yes", "y", "lan", "oui"}:
+        return True
+    if value in {"", "0", "false", "no", "n", "online", "non"}:
+        return False
+    raise ValueError(f"booleen illisible : {v!r}")
 
 
 def _roster(v) -> tuple[str, ...]:
     if not v:
         return ()
-    return tuple(sorted(p.strip().lower() for p in str(v).split(",") if p.strip()))
+    players = v.split(",") if isinstance(v, str) else v
+    return tuple(sorted(str(p).strip().lower() for p in players if str(p).strip()))
+
+
+def parse_integer(value, name: str) -> int:
+    """Accepte 13 et 13.0, sans tronquer les fractions ni les non-finis."""
+    try:
+        number = Decimal(str(value).strip())
+        if not number.is_finite() or number != number.to_integral_value():
+            raise ValueError
+        return int(number)
+    except (InvalidOperation, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} doit etre un entier : {value!r}") from exc
+
+
+def map_from_record(row: dict) -> MapResult:
+    """Normalisation partagee par les entrees CSV et API."""
+    def optional(name, default):
+        value = row.get(name)
+        return default if value is None or value == "" else value
+
+    return MapResult(
+        match_id=str(row.get("match_id") or "").strip(),
+        date=parse_date(row["date"]),
+        team_a=normalize_team(row.get("team_a") or ""),
+        team_b=normalize_team(row.get("team_b") or ""),
+        map_name=normalize_map(row.get("map") or row.get("map_name") or ""),
+        rounds_a=parse_integer(row["rounds_a"], "rounds_a"),
+        rounds_b=parse_integer(row["rounds_b"], "rounds_b"),
+        best_of=parse_integer(optional("best_of", 3), "best_of"),
+        event=str(row.get("event") or "").strip(),
+        tier=str(row.get("tier") or "b").strip().lower(),
+        lan=_to_bool(row.get("lan")),
+        map_index=parse_integer(optional("map_index", 0), "map_index"),
+        roster_a=_roster(row.get("roster_a")), roster_b=_roster(row.get("roster_b")),
+    )
 
 
 def read_csv(path: str) -> list[MapResult]:
@@ -180,27 +243,9 @@ def read_csv(path: str) -> list[MapResult]:
             raise ValueError(f"colonnes manquantes dans {path}: {sorted(missing)}")
         for i, row in enumerate(reader):
             try:
-                rows.append(
-                    MapResult(
-                        match_id=str(row["match_id"]).strip(),
-                        date=parse_date(row["date"]),
-                        team_a=normalize_team(row["team_a"]),
-                        team_b=normalize_team(row["team_b"]),
-                        map_name=normalize_map(row["map"]),
-                        rounds_a=int(float(row["rounds_a"])),
-                        rounds_b=int(float(row["rounds_b"])),
-                        best_of=int(float(row.get("best_of") or 3)),
-                        event=(row.get("event") or "").strip(),
-                        tier=(row.get("tier") or "b").strip().lower(),
-                        lan=_to_bool(row.get("lan")),
-                        map_index=int(float(row.get("map_index") or 0)),
-                        roster_a=_roster(row.get("roster_a")),
-                        roster_b=_roster(row.get("roster_b")),
-                    )
-                )
+                rows.append(map_from_record(row))
             except (ValueError, KeyError, TypeError) as exc:
                 raise ValueError(f"ligne {i + 2} invalide dans {path}: {exc}") from exc
-    rows = [r for r in rows if r.rounds_a != r.rounds_b and r.team_a != r.team_b]
     rows.sort(key=lambda m: (m.date, m.match_id, m.map_index))
     return rows
 
@@ -208,7 +253,7 @@ def read_csv(path: str) -> list[MapResult]:
 def write_csv(path: str, maps: Sequence[MapResult]) -> None:
     cols = [
         "match_id", "date", "team_a", "team_b", "map", "rounds_a", "rounds_b",
-        "best_of", "event", "tier", "lan", "map_index",
+        "best_of", "event", "tier", "lan", "map_index", "roster_a", "roster_b",
     ]
     with open(path, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
@@ -217,7 +262,7 @@ def write_csv(path: str, maps: Sequence[MapResult]) -> None:
             w.writerow([
                 m.match_id, m.date.isoformat(), m.team_a, m.team_b, m.map_name,
                 m.rounds_a, m.rounds_b, m.best_of, m.event, m.tier,
-                int(m.lan), m.map_index,
+                int(m.lan), m.map_index, ",".join(m.roster_a), ",".join(m.roster_b),
             ])
 
 
@@ -235,6 +280,14 @@ def group_matches(maps: Iterable[MapResult]) -> list[Match]:
     for mid in order:
         group = sorted(buckets[mid], key=lambda m: m.map_index)
         head = group[0]
+        indices = [m.map_index for m in group]
+        if len(set(indices)) != len(indices) and any(indices):
+            raise ValueError(f"indices de map dupliques : {mid}")
+        for m in group:
+            if ({m.team_a, m.team_b} != {head.team_a, head.team_b}
+                    or (m.date, m.best_of, m.event, m.lan, m.tier)
+                    != (head.date, head.best_of, head.event, head.lan, head.tier)):
+                raise ValueError(f"maps incoherentes dans le match {mid}")
         # Une equipe peut apparaitre en team_b sur une map : on realigne sur head.
         aligned: list[MapResult] = []
         for m in group:
@@ -250,6 +303,13 @@ def group_matches(maps: Iterable[MapResult]) -> list[Match]:
                         map_index=m.map_index, roster_a=m.roster_b, roster_b=m.roster_a,
                     )
                 )
+        need = head.best_of // 2 + 1
+        wa = wb = 0
+        for m in aligned:
+            if wa == need or wb == need:
+                raise ValueError(f"map apres la fin de la serie : {mid}")
+            wa += m.a_won
+            wb += 1 - m.a_won
         matches.append(
             Match(
                 match_id=mid, date=head.date, team_a=head.team_a, team_b=head.team_b,

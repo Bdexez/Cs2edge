@@ -356,7 +356,7 @@ def build_datasets(
     for match in sorted(matches, key=lambda m: (m.date, m.match_id)):
         a, b = match.team_a, match.team_b
         ready = min(fx.elo.maps_played(a), fx.elo.maps_played(b)) >= warmup_maps
-        if ready:
+        if ready and match.is_complete:
             mX.append(fx.match_features(a, b, match.date, match.best_of, match.lan))
             my.append(match.a_won)
             mdates.append(match.date)

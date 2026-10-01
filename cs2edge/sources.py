@@ -21,7 +21,7 @@ import random
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
-from .schema import ACTIVE_DUTY, MapResult, normalize_map, normalize_team, parse_date, read_csv
+from .schema import ACTIVE_DUTY, MapResult, map_from_record, read_csv
 
 __all__ = ["read_csv", "from_records", "simulate_history", "simulate_with_truth",
            "map_win_probability", "Regime", "REGIMES"]
@@ -30,28 +30,11 @@ __all__ = ["read_csv", "from_records", "simulate_history", "simulate_with_truth"
 def from_records(records: Iterable[dict]) -> list[MapResult]:
     """Convertit des dicts bruts (sortie d'API) en `MapResult` normalises."""
     out: list[MapResult] = []
-    for r in records:
-        ra, rb = int(r["rounds_a"]), int(r["rounds_b"])
-        if ra == rb:
-            continue  # une map nulle n'existe pas en CS2 competitif
-        out.append(
-            MapResult(
-                match_id=str(r["match_id"]),
-                date=parse_date(r["date"]),
-                team_a=normalize_team(r["team_a"]),
-                team_b=normalize_team(r["team_b"]),
-                map_name=normalize_map(r.get("map") or r.get("map_name") or "unknown"),
-                rounds_a=ra,
-                rounds_b=rb,
-                best_of=int(r.get("best_of") or 3),
-                event=str(r.get("event") or ""),
-                tier=str(r.get("tier") or "b").lower(),
-                lan=bool(r.get("lan", False)),
-                map_index=int(r.get("map_index") or 0),
-                roster_a=tuple(sorted(r.get("roster_a") or ())),
-                roster_b=tuple(sorted(r.get("roster_b") or ())),
-            )
-        )
+    for i, row in enumerate(records, 1):
+        try:
+            out.append(map_from_record(row))
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ValueError(f"enregistrement {i} invalide : {exc}") from exc
     out.sort(key=lambda m: (m.date, m.match_id, m.map_index))
     return out
 
