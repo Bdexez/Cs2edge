@@ -69,6 +69,7 @@ class Fixture:
     # parce que les books l'ouvrent souvent depuis un modele i.i.d. aveugle au veto.
     odds_a_sweep: float | None = None
     odds_b_sweep: float | None = None
+    match_id: str = ""
 
     @property
     def label(self) -> str:
@@ -94,6 +95,8 @@ class Pick:
     edge: float | None = None
     ev: float | None = None
     stake: float | None = None
+    match_id: str = ""
+    data_through: str = ""
 
     @property
     def fair_odds(self) -> float:
@@ -153,6 +156,7 @@ def select_analysis_picks(
     p_a: float,
     dist,
     abstention: float = SEUIL_ABSTENTION,
+    match_id: str = "",
 ) -> list[Pick]:
     """Regles de selection en mode analyse, sans prose ni etat.
 
@@ -215,6 +219,8 @@ def select_analysis_picks(
                     probability=p_sweep, tier=_tier(p_sweep), verdict="PRONOSTIC",
                 )
             )
+    for pick in picks:
+        pick.match_id = match_id
     return picks
 
 
@@ -370,6 +376,9 @@ class Tipster:
                 "aucun ecart exploitable avec le marche" if market_mode
                 else f"match trop serre ({pred.p_favorite:.0%}) pour un pronostic assume"
             )
+        for pick in analysis.picks:
+            pick.match_id = fx.match_id
+            pick.data_through = self.an.match_model.last_date
         return analysis
 
     # ------------------------------------------------------- mode sans cotes
@@ -735,6 +744,7 @@ def simulate_tipster(
             picks = select_analysis_picks(
                 match_ds.dates[r], meta["team_a"], meta["team_b"], bo,
                 meta.get("event", ""), p_final, dist, abstention,
+                match_id=meta.get("match_id", ""),
             )
             if not picks:
                 n_skipped += 1
@@ -802,6 +812,7 @@ def read_fixtures(path: str | "Path") -> list[Fixture]:
                         odds_under=_f(row, "odds_under"),
                         odds_a_sweep=_f(row, "odds_a_sweep"),
                         odds_b_sweep=_f(row, "odds_b_sweep"),
+                        match_id=str(row.get("match_id") or "").strip(),
                     )
                 )
             except (ValueError, KeyError) as exc:

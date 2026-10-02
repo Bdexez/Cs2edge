@@ -16,22 +16,30 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import hashlib
+import os
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterable, Sequence
 
 from .pronostic import Pick, SettledPick, TipsterRecord, _settle
-from .schema import Match, group_matches, normalize_team, parse_date
+from . import __version__
+from .schema import Match, normalize_team, parse_date
 
 COLUMNS = [
     "pick_id", "emis_le", "date", "team_a", "team_b", "best_of", "event",
     "marche", "selection", "probabilite", "palier", "verdict",
-    "cote", "edge", "mise", "score", "resultat",
+    "cote", "edge", "mise", "score", "resultat", "match_id", "emis_a",
+    "donnees_jusquau", "version_modele",
 ]
 
 
 def pick_id(pick: Pick) -> str:
     """Identifiant stable : deux fois le meme pronostic ne cree qu'une ligne."""
-    raw = f"{pick.date}|{pick.team_a}|{pick.team_b}|{pick.market}|{pick.selection}"
+    teams = sorted((normalize_team(pick.team_a), normalize_team(pick.team_b)))
+    fixture = (f"id:{pick.match_id}" if pick.match_id else
+               f"{pick.date}|{teams}|{pick.best_of}|{pick.event}")
+    raw = f"{fixture}|{pick.market}|{pick.selection}"
     return hashlib.sha1(raw.encode()).hexdigest()[:12]
 
 
@@ -54,6 +62,10 @@ def _row(pick: Pick, issued: dt.date) -> dict:
         "mise": "" if pick.stake is None else f"{pick.stake:.6f}",
         "score": "",
         "resultat": "",
+        "match_id": pick.match_id,
+        "emis_a": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "donnees_jusquau": pick.data_through,
+        "version_modele": __version__,
     }
 
 
@@ -66,10 +78,58 @@ def load(path: str | Path) -> list[dict]:
 
 
 def _write(path: Path, rows: Sequence[dict]) -> None:
-    with path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=COLUMNS)
-        writer.writeheader()
-        writer.writerows(rows)
+    # Remplacement atomique : une interruption ne tronque pas le journal.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", newline="", encoding="utf-8",
+                                         dir=path.parent, delete=False) as fh:
+            temporary = Path(fh.name)
+            writer = csv.DictWriter(fh, fieldnames=COLUMNS)
+            writer.writeheader()
+            writer.writerows(rows)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def _locked(path: Path):
+    """Verrou distinct du CSV, qui reste stable lors du remplacement atomique."""
+    with path.with_name(path.name + ".lock").open("a+b") as fh:
+        if os.name == "nt":
+            import msvcrt
+            fh.seek(0)
+            fh.write(b"\0")
+            fh.flush()
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _pick_from_row(row: dict) -> Pick:
+    return Pick(
+        date=parse_date(row["date"]), team_a=row["team_a"], team_b=row["team_b"],
+        best_of=int(row["best_of"] or 3), event=row.get("event", ""),
+        market=row["marche"], selection=row["selection"],
+        probability=float(row["probabilite"]), tier=row["palier"], verdict=row["verdict"],
+        odds=float(row["cote"]) if row.get("cote") else None,
+        edge=float(row["edge"]) if row.get("edge") else None,
+        stake=float(row["mise"]) if row.get("mise") else None,
+        match_id=row.get("match_id", ""), data_through=row.get("donnees_jusquau", ""),
+    )
 
 
 def record(picks: Iterable[Pick], path: str | Path, issued: dt.date | None = None) -> int:
@@ -81,20 +141,26 @@ def record(picks: Iterable[Pick], path: str | Path, issued: dt.date | None = Non
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing = load(path)
-    known = {r["pick_id"] for r in existing}
     issued = issued or dt.date.today()
-
-    added = [_row(p, issued) for p in picks if pick_id(p) not in known]
-    if added:
-        _write(path, existing + added)
+    with _locked(path):
+        existing = load(path)
+        known = {pick_id(_pick_from_row(r)) for r in existing}
+        added = []
+        for pick in picks:
+            identity = pick_id(pick)
+            if identity not in known:
+                added.append(_row(pick, issued))
+                known.add(identity)
+        if added:
+            _write(path, existing + added)
     return len(added)
 
 
 def _index(matches: Sequence[Match]) -> dict:
     out = {}
     for m in matches:
-        out[(m.date, frozenset((m.team_a, m.team_b)))] = m
+        if m.is_complete:
+            out.setdefault(frozenset((m.team_a, m.team_b)), []).append(m)
     return out
 
 
@@ -105,28 +171,43 @@ def settle(journal_path: str | Path, results: Sequence[Match], window_days: int 
     d'un jour) sans ouvrir la porte a un mauvais appariement.
     """
     path = Path(journal_path)
+    if not path.exists():
+        return {"pointes": 0, "en_attente": 0, "introuvables": 0, "ambigus": 0}
+    if window_days < 0:
+        raise ValueError("window_days doit etre positif ou nul")
+    with _locked(path):
+        return _settle_locked(path, results, window_days)
+
+
+def _settle_locked(path: Path, results: Sequence[Match], window_days: int) -> dict:
     rows = load(path)
     if not rows:
-        return {"pointes": 0, "en_attente": 0, "introuvables": 0}
+        return {"pointes": 0, "en_attente": 0, "introuvables": 0, "ambigus": 0}
 
     idx = _index(results)
-    pointes = introuvables = 0
+    pointes = introuvables = ambigus = 0
     for row in rows:
         if row.get("resultat"):
             continue
         d = parse_date(row["date"])
         key_teams = frozenset((normalize_team(row["team_a"]), normalize_team(row["team_b"])))
-        match = None
-        for delta in range(0, window_days + 1):
-            for signed in ({delta, -delta} if delta else {0}):
-                match = idx.get((d + dt.timedelta(days=signed), key_teams))
-                if match:
-                    break
-            if match:
-                break
-        if match is None:
+        candidates = [m for m in idx.get(key_teams, ())
+                      if m.best_of == int(row["best_of"] or 3)]
+        if row.get("match_id"):
+            candidates = [m for m in candidates if m.match_id == row["match_id"]]
+        else:
+            candidates = [m for m in candidates if abs((m.date - d).days) <= window_days
+                          and (not row.get("event") or m.event == row["event"])]
+            if candidates:
+                nearest = min(abs((m.date - d).days) for m in candidates)
+                candidates = [m for m in candidates if abs((m.date - d).days) == nearest]
+        if not candidates:
             introuvables += 1
             continue
+        if len(candidates) != 1:
+            ambigus += 1
+            continue
+        match = candidates[0]
 
         # Le journal peut avoir enregistre les equipes dans l'autre sens.
         flipped = match.team_a != normalize_team(row["team_a"])
@@ -149,6 +230,7 @@ def settle(journal_path: str | Path, results: Sequence[Match], window_days: int 
         "pointes": pointes,
         "en_attente": sum(1 for r in rows if not r.get("resultat")),
         "introuvables": introuvables,
+        "ambigus": ambigus,
     }
 
 
@@ -159,16 +241,7 @@ def scorecard(journal_path: str | Path) -> TipsterRecord | None:
         return None
     settled = [
         SettledPick(
-            pick=Pick(
-                date=parse_date(r["date"]), team_a=r["team_a"], team_b=r["team_b"],
-                best_of=int(r["best_of"] or 3), event=r.get("event", ""),
-                market=r["marche"], selection=r["selection"],
-                probability=float(r["probabilite"]), tier=r["palier"],
-                verdict=r["verdict"],
-                odds=float(r["cote"]) if r.get("cote") else None,
-                edge=float(r["edge"]) if r.get("edge") else None,
-                stake=float(r["mise"]) if r.get("mise") else None,
-            ),
+            pick=_pick_from_row(r),
             won=r["resultat"] == "gagne",
         )
         for r in rows

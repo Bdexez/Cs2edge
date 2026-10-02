@@ -250,7 +250,7 @@ def cmd_settle(args) -> int:
     stats = journal_mod.settle(args.journal, an.matches)
     print(f"Pointage : {stats['pointes']} nouveau(x) resultat(s), "
           f"{stats['en_attente']} en attente, "
-          f"{stats['introuvables']} match(s) introuvable(s) dans les donnees.")
+          f"{stats['introuvables']} introuvable(s), {stats['ambigus']} ambigu(s).")
     return cmd_journal(args)
 
 
