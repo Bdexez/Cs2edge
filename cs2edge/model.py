@@ -292,6 +292,11 @@ class MatchPredictor:
         return m
 
 
+def map_predictor(**kwargs) -> MatchPredictor:
+    """Configuration map commune au service et aux deux backtests."""
+    return MatchPredictor(**{**kwargs, "use_gbdt": False})
+
+
 def series_win_probability(p_map: float, best_of: int) -> float:
     """Passe d'une proba par map a une proba de serie (maps supposees i.i.d.).
 

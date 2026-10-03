@@ -10,7 +10,7 @@ import numpy as np
 
 from .features import FeatureExtractor, build_datasets
 from .markets import project_veto, series_distribution
-from .model import MatchPredictor, series_win_probability
+from .model import MatchPredictor, map_predictor
 from .ratings import EloConfig
 from .schema import ACTIVE_DUTY, Match, MapResult, group_matches, normalize_team, read_csv
 
@@ -207,9 +207,7 @@ class Analyzer:
         self.match_model = MatchPredictor(**kwargs).fit(
             self.match_ds.X, self.match_ds.y, self.match_ds.dates, self.match_ds.feature_names
         )
-        map_kwargs = dict(kwargs)
-        map_kwargs.setdefault("use_gbdt", False)
-        self.map_model = MatchPredictor(**map_kwargs).fit(
+        self.map_model = map_predictor(**kwargs).fit(
             self.map_ds.X, self.map_ds.y, self.map_ds.dates, self.map_ds.feature_names
         )
         return self
@@ -298,27 +296,17 @@ class Analyzer:
         )
 
 
-        ta, tb = self.fx.elo.teams[a], self.fx.elo.teams[b]
-        h2h_key = (min(a, b), max(a, b))
-        n_h2h = len(self.fx.h2h.get(h2h_key, ()))
-        quality = {
-            "maps_a": ta.maps_played, "maps_b": tb.maps_played,
-            "last_a": ta.last_date.isoformat() if ta.last_date else "jamais",
-            "last_b": tb.last_date.isoformat() if tb.last_date else "jamais",
-            "h2h": n_h2h,
-        }
-
-        thin = min(ta.maps_played, tb.maps_played)
-        stale = max(
-            (on - ta.last_date).days if ta.last_date else 999,
-            (on - tb.last_date).days if tb.last_date else 999,
-        )
+        quality = self.fx.match_context(a, b, on)
+        n_h2h = quality["h2h_n"]
+        thin, stale = quality["maps_played_min"], quality["days_idle_max"]
 
         # Le modele match voit la forme, le h2h, le repos ; la lecture par maps
         # voit le terrain. Ni l'un ni l'autre ne domine : le melange bat les deux.
         # Puis retrecissement si l'historique est mince ou perime, et plafond dur :
         # un bo3 de CS2 n'est jamais joue d'avance.
-        p_final, p_blend = combine_probability(p_match, p_from_maps, thin, stale)
+        p_final, p_blend = combine_probability(
+            p_match, p_from_maps, thin, stale, certainty=quality["certainty"]
+        )
 
         warnings: list[str] = []
         if thin < 25:

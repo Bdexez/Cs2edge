@@ -120,8 +120,7 @@ def cmd_backtest(args) -> int:
     print(
         "\nLecture : `skill` = reduction du log-loss face au pile ou face. "
         "En CS2 pro, 0.10-0.20 est deja bon ; au-dela, suspecter une fuite de donnees.\n"
-        "Le backtest evalue le melange servi par `predict`, au plafond de confiance\n"
-        "pres (applique seulement a la prediction unitaire)."
+        "Le backtest applique le meme melange et les memes garde-fous que `predict`."
     )
     if args.by_year:
         print("\nPar annee :")

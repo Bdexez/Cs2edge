@@ -689,7 +689,7 @@ def simulate_tipster(
     import numpy as np
 
     from .backtest import _pool_to_series
-    from .model import MatchPredictor
+    from .model import MatchPredictor, map_predictor
     from .predict import combine_probability, confidence_label
     from .schema import ACTIVE_DUTY
 
@@ -709,9 +709,7 @@ def simulate_tipster(
         )
         cutoff = match_ds.dates[i]
         k = sum(1 for d in map_ds.dates if d < cutoff)
-        mk = dict(model_kwargs)
-        mk["use_gbdt"] = False
-        map_model = MatchPredictor(**mk).fit(
+        map_model = map_predictor(**model_kwargs).fit(
             map_ds.X[:k], map_ds.y[:k], map_ds.dates[:k], map_ds.feature_names
         )
         p_match_all = model.predict_proba(match_ds.X[i:j])
@@ -738,6 +736,7 @@ def simulate_tipster(
             p_final, _ = combine_probability(
                 float(p_match_all[r - i]), p_maps,
                 meta.get("maps_played_min", 999), meta.get("days_idle_max", 0),
+                certainty=meta.get("certainty"),
             )
             plan = project_veto(pool, bo)
             dist = shape_series(plan, bo, p_final, momentum, t_fold)

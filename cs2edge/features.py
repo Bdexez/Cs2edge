@@ -311,6 +311,21 @@ class FeatureExtractor:
         for m in sorted(match.maps, key=lambda x: x.map_index):
             self.observe_map(m)
 
+    def match_context(self, a: str, b: str, on: dt.date) -> dict:
+        """Meme contexte de fiabilite pour les features, le service et les relectures."""
+        ta, tb = self.elo._team(a), self.elo._team(b)
+        h2h = len(self.h2h.get((min(a, b), max(a, b)), ()))
+        return {
+            "maps_a": ta.maps_played, "maps_b": tb.maps_played,
+            "last_a": ta.last_date.isoformat() if ta.last_date else "jamais",
+            "last_b": tb.last_date.isoformat() if tb.last_date else "jamais",
+            "maps_played_min": min(ta.maps_played, tb.maps_played),
+            "h2h": h2h, "h2h_n": h2h,
+            "certainty": self.elo.certainty(a, b, on),
+            "days_idle_max": max((on - ta.last_date).days if ta.last_date else 999,
+                                 (on - tb.last_date).days if tb.last_date else 999),
+        }
+
 
 @dataclass
 class Dataset:
@@ -360,23 +375,12 @@ def build_datasets(
             mX.append(fx.match_features(a, b, match.date, match.best_of, match.lan))
             my.append(match.a_won)
             mdates.append(match.date)
-            ta, tb = fx.elo.teams[a], fx.elo.teams[b]
             mmeta.append(
                 {
                     "match_id": match.match_id, "team_a": a, "team_b": b,
                     "event": match.event, "tier": match.tier, "best_of": match.best_of,
                     "lan": match.lan, "score": f"{match.maps_a}-{match.maps_b}",
-                    # Etat de fiabilite au moment du match : permet au backtest
-                    # d'appliquer exactement le meme retrecissement qu'en direct.
-                    "maps_played_min": min(ta.maps_played, tb.maps_played),
-                    "h2h_n": len(fx.h2h.get((min(a, b), max(a, b)), ())),
-                    # Certitude sur l'ecart de notes, dans [0, 1] : permet de
-                    # rejouer en backtest exactement le garde-fou applique en direct.
-                    "certainty": fx.elo.certainty(a, b, match.date),
-                    "days_idle_max": max(
-                        (match.date - ta.last_date).days if ta.last_date else 999,
-                        (match.date - tb.last_date).days if tb.last_date else 999,
-                    ),
+                    **fx.match_context(a, b, match.date),
                 }
             )
             mpool.append([fx.map_features(a, b, match.date, m) for m in ACTIVE_DUTY])

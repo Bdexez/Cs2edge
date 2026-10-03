@@ -15,7 +15,7 @@ import numpy as np
 
 from .features import Dataset
 from .metrics import format_summary, log_loss, reliability_table, summarize
-from .model import MatchPredictor
+from .model import MatchPredictor, map_predictor
 from .ratings import expected_score
 from .schema import ACTIVE_DUTY
 
@@ -127,13 +127,11 @@ def walk_forward(
             # predit : meme frontiere temporelle que le modele match.
             cutoff = ds.dates[i]
             k = sum(1 for d in map_ds.dates if d < cutoff)
-            mk = dict(model_kwargs)
             # Logistique seule au niveau map. Le GBDT a ete essaye ici (son
             # dataset est pourtant le plus gros, 4758 lignes contre 2416) :
             # +0.0005 de log-loss pour +0.0011 d'erreur type appariee, soit
             # rien, contre le double de temps de calcul.
-            mk["use_gbdt"] = False
-            map_model = MatchPredictor(**mk)
+            map_model = map_predictor(**model_kwargs)
             map_model.fit(map_ds.X[:k], map_ds.y[:k], map_ds.dates[:k], map_ds.feature_names)
             for r in range(i, j):
                 p_maps[r - start] = _pool_to_series(
