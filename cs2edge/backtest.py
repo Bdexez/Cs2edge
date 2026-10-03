@@ -18,6 +18,7 @@ from .metrics import format_summary, log_loss, reliability_table, summarize
 from .model import MatchPredictor, map_predictor
 from .ratings import expected_score
 from .schema import ACTIVE_DUTY
+from .temporal import forward_splits
 
 
 @dataclass
@@ -94,6 +95,7 @@ def walk_forward(
     min_train: int = 200,
     blend: float = 0.5,
     momentum: float = 0.0,
+    evaluation_start: dt.date | None = None,
     **model_kwargs,
 ) -> BacktestResult:
     """Entraine sur [0, i), predit [i, i+refit_every), avance, recommence.
@@ -102,12 +104,8 @@ def walk_forward(
     c'est-a-dire exactement ce que sert `Analyzer.predict`.
     """
     n = len(ds)
-    start = max(min_train, int(n * initial_frac))
-    if n - start < 50:
-        raise ValueError(
-            f"dataset trop court pour un backtest ({n} matchs). "
-            "Il en faut au moins ~400 pour que le resultat veuille dire quelque chose."
-        )
+    splits = forward_splits(ds.dates, initial_frac, min_train, refit_every, evaluation_start)
+    start = splits[0][0]
 
     from .predict import combine_probability  # import local : evite un cycle
 
@@ -115,9 +113,7 @@ def walk_forward(
     p_match = np.zeros(n - start)
     p_maps = np.zeros(n - start) if use_maps else None
     folds = 0
-    i = start
-    while i < n:
-        j = min(n, i + refit_every)
+    for i, j in splits:
         model = MatchPredictor(**model_kwargs)
         model.fit(ds.X[:i], ds.y[:i], ds.dates[:i], ds.feature_names)
         p_match[i - start : j - start] = model.predict_proba(ds.X[i:j])
@@ -138,7 +134,6 @@ def walk_forward(
                     map_model, ds.pool_X[r], ds.meta[r].get("best_of", 3), momentum
                 )
         folds += 1
-        i = j
 
     y = ds.y[start:]
     elo_only = _elo_reference(ds)[start:]

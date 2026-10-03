@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+from itertools import groupby
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
@@ -368,33 +369,40 @@ def build_datasets(
     mX, my, mdates, mmeta, mpool = [], [], [], [], []
     pX, py, pdates, pmeta = [], [], [], []
 
-    for match in sorted(matches, key=lambda m: (m.date, m.match_id)):
-        a, b = match.team_a, match.team_b
-        ready = min(fx.elo.maps_played(a), fx.elo.maps_played(b)) >= warmup_maps
-        if ready and match.is_complete:
-            mX.append(fx.match_features(a, b, match.date, match.best_of, match.lan))
-            my.append(match.a_won)
-            mdates.append(match.date)
-            mmeta.append(
-                {
-                    "match_id": match.match_id, "team_a": a, "team_b": b,
-                    "event": match.event, "tier": match.tier, "best_of": match.best_of,
-                    "lan": match.lan, "score": f"{match.maps_a}-{match.maps_b}",
-                    **fx.match_context(a, b, match.date),
-                }
-            )
-            mpool.append([fx.map_features(a, b, match.date, m) for m in ACTIVE_DUTY])
-            for mp in match.maps:
-                pX.append(fx.map_features(a, b, match.date, mp.map_name))
-                py.append(mp.a_won)
-                pdates.append(match.date)
-                pmeta.append(
+    if warmup_maps < 0:
+        raise ValueError("warmup_maps doit etre positif ou nul")
+    ordered = sorted(matches, key=lambda m: (m.date, m.match_id))
+    for _, day_matches in groupby(ordered, key=lambda m: m.date):
+        day_matches = list(day_matches)
+        # Sans horaires, toutes les predictions du jour utilisent la veille.
+        for match in day_matches:
+            a, b = match.team_a, match.team_b
+            ready = min(fx.elo.maps_played(a), fx.elo.maps_played(b)) >= warmup_maps
+            if ready and match.is_complete:
+                mX.append(fx.match_features(a, b, match.date, match.best_of, match.lan))
+                my.append(match.a_won)
+                mdates.append(match.date)
+                mmeta.append(
                     {
                         "match_id": match.match_id, "team_a": a, "team_b": b,
-                        "map": mp.map_name, "score": f"{mp.rounds_a}-{mp.rounds_b}",
+                        "event": match.event, "tier": match.tier, "best_of": match.best_of,
+                        "lan": match.lan, "score": f"{match.maps_a}-{match.maps_b}",
+                        **fx.match_context(a, b, match.date),
                     }
                 )
-        fx.observe_match(match)
+                mpool.append([fx.map_features(a, b, match.date, m) for m in ACTIVE_DUTY])
+                for mp in match.maps:
+                    pX.append(fx.map_features(a, b, match.date, mp.map_name))
+                    py.append(mp.a_won)
+                    pdates.append(match.date)
+                    pmeta.append(
+                        {
+                            "match_id": match.match_id, "team_a": a, "team_b": b,
+                            "map": mp.map_name, "score": f"{mp.rounds_a}-{mp.rounds_b}",
+                        }
+                    )
+        for match in day_matches:
+            fx.observe_match(match)
 
     match_ds = Dataset(
         X=np.array(mX, dtype=float).reshape(len(my), len(FeatureExtractor.MATCH_FEATURES)),

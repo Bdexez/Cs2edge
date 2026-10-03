@@ -28,6 +28,7 @@ from .markets import (
 )
 from .odds import devig_power, expected_value, kelly_fraction
 from .predict import Analyzer, Prediction
+from .temporal import forward_splits
 
 # Seuils de tri. Valides par `cs2edge tipster-backtest` : chaque palier doit
 # tenir sa promesse sur l'historique, sinon il ment a son lecteur.
@@ -694,16 +695,13 @@ def simulate_tipster(
     from .schema import ACTIVE_DUTY
 
     n = len(match_ds)
-    start = max(min_train, int(n * initial_frac))
-    if n - start < 50:
-        raise ValueError(f"historique trop court ({n} matchs) pour juger le pronostiqueur")
+    splits = forward_splits(match_ds.dates, initial_frac, min_train, refit_every)
+    start = splits[0][0]
 
     settled: list[SettledPick] = []
     dispersions: list[float] = []
     n_skipped = 0
-    i = start
-    while i < n:
-        j = min(n, i + refit_every)
+    for i, j in splits:
         model = MatchPredictor(**model_kwargs).fit(
             match_ds.X[:i], match_ds.y[:i], match_ds.dates[:i], match_ds.feature_names
         )
@@ -750,7 +748,6 @@ def simulate_tipster(
                 continue
             for pk in picks:
                 settled.append(SettledPick(pick=pk, won=_settle(pk, meta, match_ds.y[r])))
-        i = j
 
     return TipsterRecord(
         settled=settled, n_fixtures=n - start, n_skipped=n_skipped,

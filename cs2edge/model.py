@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 
 from .metrics import log_loss
+from .temporal import calibration_boundary, validate_dates
 
 RECENCY_HALFLIFE_DAYS = 540.0
 
@@ -176,6 +177,12 @@ class MatchPredictor:
         y = np.asarray(y, dtype=float)
         if len(y) < 50:
             raise ValueError(f"trop peu de matchs pour entrainer ({len(y)}), il en faut ~50+")
+        if dates is not None:
+            if len(dates) != len(y):
+                raise ValueError("une date est requise pour chaque resultat")
+            validate_dates(dates)
+        if not 0 <= self.calibration_frac < 1:
+            raise ValueError("calibration_frac doit etre dans [0, 1[")
         self.feature_names = feature_names or self.feature_names
         self.trained_on = len(y)
         if dates:
@@ -185,6 +192,9 @@ class MatchPredictor:
         n_cal = int(len(y) * self.calibration_frac)
         n_cal = 0 if n_cal < 40 else n_cal
         n_fit = len(y) - n_cal
+        if dates and n_cal:
+            n_fit = calibration_boundary(dates, n_fit)
+            n_cal = len(y) - n_fit
         Xf, yf = X[:n_fit], y[:n_fit]
         w = recency_weights(dates[:n_fit], self.recency_halflife) if dates else None
 
