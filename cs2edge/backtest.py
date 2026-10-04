@@ -9,6 +9,8 @@ notes Elo d'un match donne encodent deja des matchs posterieurs.
 from __future__ import annotations
 
 import datetime as dt
+import math
+from bisect import bisect_left
 from dataclasses import dataclass
 
 import numpy as np
@@ -256,15 +258,26 @@ def tune(
     from .features import build_datasets
     from .ratings import EloConfig
 
-    grid = grid or TUNING_GRID
+    if not math.isfinite(holdout_frac) or not 0 < holdout_frac < 1:
+        raise ValueError("holdout_frac doit etre strictement entre 0 et 1")
+    grid = TUNING_GRID if grid is None else grid
     matches = sorted(matches, key=lambda m: (m.date, m.match_id))
     cut = int(len(matches) * (1 - holdout_frac))
-    fit_matches, holdout = matches[:cut], matches
+    if not 0 < cut < len(matches):
+        raise ValueError("historique trop court pour reserver une periode de validation")
+    validation_date = matches[cut].date
+    cut = bisect_left([m.date for m in matches], validation_date)
+    fit_matches = matches[:cut]
+
+    def evaluate(cfg: EloConfig, subset, start_date=None) -> BacktestResult:
+        mds, pds, _ = build_datasets(subset, cfg, warmup_maps)
+        kwargs = {**wf_kwargs, "use_gbdt": False}
+        if start_date is not None:
+            kwargs["evaluation_start"] = start_date
+        return walk_forward(mds, map_ds=pds, **kwargs)
 
     def score(cfg: EloConfig, subset) -> float:
-        mds, pds, _ = build_datasets(subset, cfg, warmup_maps)
-        res = walk_forward(mds, map_ds=pds, use_gbdt=False, **wf_kwargs)
-        return res.metrics["log_loss"]
+        return evaluate(cfg, subset).metrics["log_loss"]
 
     current = EloConfig()
     baseline_fit = score(current, fit_matches)
@@ -292,14 +305,22 @@ def tune(
         elif verbose:
             print(f"  {name:<22} -> inchange")
 
+    # Tout le passe construit les ratings ; seules les cibles reservees comptent.
+    baseline_validation = evaluate(EloConfig(), matches, validation_date)
+    tuned_validation = evaluate(current, matches, validation_date)
     report = {
         "logloss_reglage_avant": baseline_fit,
         "logloss_reglage_apres": best,
-        "logloss_validation_avant": score(EloConfig(), holdout),
-        "logloss_validation_apres": score(current, holdout),
+        "logloss_validation_avant": baseline_validation.metrics["log_loss"],
+        "logloss_validation_apres": tuned_validation.metrics["log_loss"],
         "essais": history,
         "n_matchs_reglage": cut,
         "n_matchs_total": len(matches),
+        "n_matchs_validation": len(tuned_validation.y),
+        "validation_debut": tuned_validation.dates[0].isoformat(),
+        "validation_fin": tuned_validation.dates[-1].isoformat(),
+        "reglage_match_ids": [m.match_id for m in fit_matches],
+        "validation_match_ids": [m["match_id"] for m in tuned_validation.meta],
     }
     report["gain_reel"] = (
         report["logloss_validation_avant"] - report["logloss_validation_apres"]
