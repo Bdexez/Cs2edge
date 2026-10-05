@@ -187,6 +187,9 @@ class Analyzer:
         self.map_ds = None
         self.match_model: MatchPredictor | None = None
         self.map_model: MatchPredictor | None = None
+        self._training_options: dict = {}
+        self._momentum_auto = False
+        self._snapshots: dict = {}
 
     # ------------------------------------------------------------------ setup
 
@@ -194,8 +197,10 @@ class Analyzer:
         return self.load_maps(read_csv(str(path)))
 
     def load_maps(self, maps: list[MapResult]) -> "Analyzer":
-        self.maps = maps
-        self.matches = group_matches(maps)
+        self.maps = list(maps)
+        self.matches = group_matches(self.maps)
+        self.match_model = self.map_model = None
+        self._snapshots.clear()
         self.match_ds, self.map_ds, self.fx = build_datasets(
             self.matches, self.elo_config, self.warmup_maps
         )
@@ -204,6 +209,8 @@ class Analyzer:
     def train(self, **kwargs) -> "Analyzer":
         if self.match_ds is None:
             raise RuntimeError("charger des donnees avant d'entrainer")
+        self._training_options = dict(kwargs)
+        self._snapshots.clear()
         self.match_model = MatchPredictor(**kwargs).fit(
             self.match_ds.X, self.match_ds.y, self.match_ds.dates, self.match_ds.feature_names
         )
@@ -211,6 +218,27 @@ class Analyzer:
             self.map_ds.X, self.map_ds.y, self.map_ds.dates, self.map_ds.feature_names
         )
         return self
+
+    def as_of(self, on: dt.date) -> "Analyzer":
+        """Reconstruit features, modeles et momentum avec les seuls jours anterieurs."""
+        if self.match_model is None:
+            raise RuntimeError("modele non entraine")
+        if self.matches and self.matches[-1].date < on:
+            return self
+        key = (on, self.momentum, self._momentum_auto)
+        if key not in self._snapshots:
+            maps = [m for m in self.maps if m.date < on]
+            if not maps:
+                raise ValueError(f"aucun resultat anterieur au {on}")
+            past = Analyzer(self.elo_config, self.warmup_maps,
+                            momentum=0.0 if self._momentum_auto else self.momentum)
+            past.load_maps(maps).train(**self._training_options)
+            if self._momentum_auto:
+                past.apply_estimated_momentum()
+            if len(self._snapshots) >= 8:
+                self._snapshots.pop(next(iter(self._snapshots)))
+            self._snapshots[key] = past
+        return self._snapshots[key]
 
     # ------------------------------------------------------------------ usage
 
@@ -243,8 +271,9 @@ class Analyzer:
         halluciner.
         """
         diag = self.estimate_momentum()
-        if diag.get("significatif"):
-            self.momentum = float(diag["momentum"])
+        self._momentum_auto = True
+        self._snapshots.clear()
+        self.momentum = float(diag["momentum"]) if diag.get("significatif") else 0.0
         return diag
 
     def resolve_team(self, name: str) -> str:
@@ -268,10 +297,13 @@ class Analyzer:
     ) -> Prediction:
         if self.match_model is None or self.fx is None:
             raise RuntimeError("modele non entraine")
+        on = on or dt.date.today()
+        past = self.as_of(on)
+        if past is not self:
+            return past.predict(team_a, team_b, best_of, lan, on)
         a, b = self.resolve_team(team_a), self.resolve_team(team_b)
         if a == b:
             raise ValueError("une equipe ne joue pas contre elle-meme")
-        on = on or max(m.date for m in self.matches)
 
         x = self.fx.match_features(a, b, on, best_of, lan)
         p_match = self.match_model.predict_one(x)
@@ -297,6 +329,7 @@ class Analyzer:
 
 
         quality = self.fx.match_context(a, b, on)
+        quality["data_through"] = self.match_model.last_date
         n_h2h = quality["h2h_n"]
         thin, stale = quality["maps_played_min"], quality["days_idle_max"]
 

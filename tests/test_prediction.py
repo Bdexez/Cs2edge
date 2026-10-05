@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from cs2edge.backtest import walk_forward
 from cs2edge.predict import Analyzer, combine_probability
-from cs2edge.pronostic import Fixture, Tipster, simulate_tipster
+from cs2edge.pronostic import Fixture, Tipster, fit_decider_temperature, simulate_tipster
 from cs2edge.schema import group_matches
 from cs2edge.sources import simulate_history
 
@@ -57,6 +57,48 @@ class PredictionParityTests(unittest.TestCase):
             an = Analyzer().load_maps(self.maps).train(use_gbdt=True)
         self.assertTrue(an.match_model.use_gbdt)
         self.assertFalse(an.map_model.use_gbdt)
+
+    def test_historical_prediction_is_invariant_to_future_results(self):
+        full = self.an
+        cutoff = full.match_ds.dates[-60]
+        a, b = full.known_teams()[:2]
+        expected = Analyzer().load_maps([m for m in self.maps if m.date < cutoff]).train(use_gbdt=False)
+        actual = full.predict(a, b, on=cutoff)
+        reference = expected.predict(a, b, on=cutoff)
+        self.assertAlmostEqual(actual.p_a, reference.p_a, places=12)
+        self.assertLess(actual.data_quality["data_through"], cutoff.isoformat())
+        changed = [replace(m, rounds_a=m.rounds_b, rounds_b=m.rounds_a)
+                   if m.date >= cutoff else m for m in self.maps]
+        modified = Analyzer().load_maps(changed).train(use_gbdt=False)
+        self.assertAlmostEqual(modified.predict(a, b, on=cutoff).p_a, actual.p_a, places=12)
+
+    def test_historical_card_rebuilds_derived_calibration_and_rationale(self):
+        cutoff = self.an.match_ds.dates[-60]
+        a, b = self.an.known_teams()[:2]
+        fx = Fixture(cutoff, a, b)
+        past = self.an.as_of(cutoff)
+        reference = Tipster(past, decider_temperature=fit_decider_temperature(past),
+                           calibrate_decider=True).analyse(fx)
+        actual = Tipster(self.an, decider_temperature=4.0, calibrate_decider=True).analyse(fx)
+        self.assertEqual(actual.distribution.scores, reference.distribution.scores)
+        self.assertEqual(actual.prediction.drivers, reference.prediction.drivers)
+
+    def test_default_date_detects_old_history(self):
+        a, b = self.an.known_teams()[:2]
+        pred = self.an.predict(a, b)
+        self.assertEqual(pred.date, dt.date.today())
+        self.assertEqual(pred.confidence, "faible")
+        self.assertTrue(any("jours" in warning for warning in pred.warnings))
+
+    def test_reloading_data_invalidates_trained_models(self):
+        an = Analyzer().load_maps(self.maps).train(use_gbdt=False)
+        an.load_maps(self.maps[:-20])
+        with self.assertRaisesRegex(RuntimeError, "non entraine"):
+            an.predict("a", "b")
+
+    def test_date_before_first_result_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "aucun resultat anterieur"):
+            self.an.predict("a", "b", on=dt.date(2020, 1, 1))
 
 
 if __name__ == "__main__":

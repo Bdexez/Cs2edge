@@ -198,7 +198,8 @@ def _tipster(an: Analyzer, args) -> Tipster:
         kw["edge_min"] = args.edge_min
     if getattr(args, "abstention", None) is not None:
         kw["abstention"] = args.abstention
-    return Tipster(an, momentum=an.momentum, decider_temperature=temp, **kw)
+    return Tipster(an, momentum=an.momentum, decider_temperature=temp,
+                  calibrate_decider=not getattr(args, "no_calibration", False), **kw)
 
 
 def cmd_fixtures(args) -> int:
@@ -405,7 +406,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("team_b")
     s.add_argument("--bo", type=int, default=3, choices=[1, 3, 5])
     s.add_argument("--lan", action="store_true")
-    s.add_argument("--date", help="date du match (defaut : derniere date connue)")
+    s.add_argument("--date", help="date du match (defaut : aujourd'hui ; passe reconstruit si necessaire)")
     s.add_argument("--odds-a", type=float, help="cote decimale sur team_a")
     s.add_argument("--odds-b", type=float, help="cote decimale sur team_b")
     s.add_argument("--min-edge", type=float, default=0.04)

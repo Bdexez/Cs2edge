@@ -254,12 +254,14 @@ class Tipster:
         edge_min: float = EDGE_MIN,
         abstention: float = SEUIL_ABSTENTION,
         decider_temperature: float = 1.0,
+        calibrate_decider: bool = False,
     ) -> None:
         self.an = analyzer
         self.momentum = momentum
         # Calibration du marche "la serie va-t-elle a la derniere map".
         # A estimer sur vos donnees : `cs2edge tipster-backtest` l'affiche.
         self.decider_temperature = decider_temperature
+        self.calibrate_decider = calibrate_decider
         self.edge_min = edge_min
         self.abstention = abstention
 
@@ -340,6 +342,14 @@ class Tipster:
     # ----------------------------------------------------------------- analyse
 
     def analyse(self, fx: Fixture) -> Analysis:
+        past = self.an.as_of(fx.date)
+        if past is not self.an:
+            momentum = past.momentum if self.momentum == self.an.momentum else self.momentum
+            temperature = (fit_decider_temperature(past, momentum)
+                           if self.calibrate_decider else self.decider_temperature)
+            return Tipster(past, momentum=momentum, edge_min=self.edge_min,
+                          abstention=self.abstention, decider_temperature=temperature,
+                          calibrate_decider=self.calibrate_decider).analyse(fx)
         pred = self.an.predict(fx.team_a, fx.team_b, fx.best_of, fx.lan, fx.date)
         pool = [(e.map_name, e.p_a) for e in pred.map_edges]
         veto = project_veto(pool, fx.best_of)
