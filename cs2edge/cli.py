@@ -51,7 +51,8 @@ def _analyzer(args, train: bool = True) -> Analyzer:
 
 
 def cmd_sample(args) -> int:
-    rows = simulate_history(n_teams=args.teams, years=args.years, seed=args.seed)
+    rows = simulate_history(n_teams=args.teams, years=args.years, seed=args.seed,
+                            start=args.start, regime=args.regime)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     write_csv(str(out), rows)
@@ -377,6 +378,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--teams", type=int, default=32)
     s.add_argument("--years", type=float, default=3.0)
     s.add_argument("--seed", type=int, default=7)
+    s.add_argument("--start", type=parse_date, help="date initiale fixe pour reproduire le jeu")
+    s.add_argument("--regime", choices=("facile", "realiste"), default="realiste",
+                   help="regime du generateur (defaut realiste)")
     s.set_defaults(func=cmd_sample)
 
     s = sub.add_parser("teams", parents=[common], help="liste les equipes connues")

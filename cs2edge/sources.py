@@ -55,6 +55,32 @@ _TEAM_NAMES = [
 ]
 
 
+def _simulation_config(n_teams: int, years: float, regime) -> Regime:
+    if not isinstance(n_teams, int) or not 2 <= n_teams <= len(_TEAM_NAMES):
+        raise ValueError(f"n_teams doit etre entre 2 et {len(_TEAM_NAMES)}")
+    if not math.isfinite(years) or years <= 0:
+        raise ValueError("years doit etre strictement positif et fini")
+    if isinstance(regime, str):
+        if regime not in REGIMES:
+            raise ValueError(f"regime inconnu : {regime}")
+        return REGIMES[regime]
+    return regime
+
+
+def _sample_veto(a, b, pools, best_of, rng) -> list[str]:
+    """Picks alternes et decisive tires sans remise dans le pool disponible."""
+    remaining = list(ACTIVE_DUTY)
+    picks = []
+    for index in range(best_of):
+        owner = a if index % 2 == 0 else b
+        options = ([m for m in pools[owner] if m in remaining]
+                   if index < best_of - 1 else remaining)
+        chosen = rng.choice(options or remaining)
+        picks.append(chosen)
+        remaining.remove(chosen)
+    return picks
+
+
 def _simulate_rounds(p_round: float, rng: random.Random) -> tuple[int, int]:
     """Simule une map en format MR12 avec prolongations."""
     a = b = 0
@@ -135,7 +161,7 @@ def simulate_history(
     `regime` : "facile" (defaut, lisible) ou "realiste" (aussi imprevisible que
     le vrai circuit). Voir `Regime`.
     """
-    cfg = REGIMES[regime] if isinstance(regime, str) else regime
+    cfg = _simulation_config(n_teams, years, regime)
     rng = random.Random(seed)
     names = _TEAM_NAMES[:n_teams]
     start = start or (dt.date.today() - dt.timedelta(days=int(365 * years)))
@@ -171,10 +197,7 @@ def simulate_history(
             best_of = rng.choices([1, 3, 5], weights=[0.32, 0.63, 0.05])[0]
             needed = best_of // 2 + 1
             # Veto : chacun impose une map de son pool, la decider est neutre.
-            picks: list[str] = []
-            for k in range(best_of):
-                owner = a if k % 2 == 0 else b
-                picks.append(rng.choice(pool[owner]) if k < best_of - 1 else rng.choice(ACTIVE_DUTY))
+            picks = _sample_veto(a, b, pool, best_of, rng)
             match_no += 1
             mid = f"sim{match_no:06d}"
             wa = wb = 0
@@ -252,7 +275,9 @@ def simulate_with_truth(
 
     N'a de sens que sur des donnees simulees, ou les niveaux latents existent.
     """
-    cfg = REGIMES[regime] if isinstance(regime, str) else regime
+    cfg = _simulation_config(n_teams, years, regime)
+    if not isinstance(veto_samples, int) or veto_samples < 1:
+        raise ValueError("veto_samples doit etre un entier strictement positif")
     rng = random.Random(seed)
     names = _TEAM_NAMES[:n_teams]
     start = start or (dt.date.today() - dt.timedelta(days=int(365 * years)))
@@ -292,22 +317,14 @@ def simulate_with_truth(
             a, b = rng.sample(candidates, 2)
             best_of = rng.choices([1, 3, 5], weights=[0.32, 0.63, 0.05])[0]
             needed = best_of // 2 + 1
-            picks = [
-                rng.choice(pool[a if k % 2 == 0 else b]) if k < best_of - 1
-                else rng.choice(ACTIVE_DUTY)
-                for k in range(best_of)
-            ]
+            picks = _sample_veto(a, b, pool, best_of, rng)
             match_no += 1
             mid = f"sim{match_no:06d}"
 
             # Probabilite vraie, en re-tirant le veto comme le fait la simulation.
             wins = 0
             for _s in range(veto_samples):
-                sample_picks = [
-                    truth_rng.choice(pool[a if k % 2 == 0 else b]) if k < best_of - 1
-                    else truth_rng.choice(ACTIVE_DUTY)
-                    for k in range(best_of)
-                ]
+                sample_picks = _sample_veto(a, b, pool, best_of, truth_rng)
                 wa = wb = 0
                 for mp in sample_picks:
                     if wa == needed or wb == needed:
