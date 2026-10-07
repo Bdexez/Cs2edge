@@ -256,7 +256,7 @@ def write_csv(path: str, maps: Sequence[MapResult]) -> None:
         "best_of", "event", "tier", "lan", "map_index", "roster_a", "roster_b",
     ]
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
+        w = csv.writer(fh, lineterminator="\n")
         w.writerow(cols)
         for m in maps:
             w.writerow([

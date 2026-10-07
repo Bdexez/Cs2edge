@@ -209,13 +209,13 @@ def cmd_fixtures(args) -> int:
     import itertools
 
     an = _analyzer(args, train=False)
-    on = max(m.date for m in an.matches)
+    on = args.date or max(dt.date.today(), max(m.date for m in an.matches))
     board = [t for t, _r, _n in an.fx.elo.leaderboard(on=on, min_maps=40)][: args.teams]
     pairs = list(itertools.combinations(board, 2))[: args.count]
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
+        w = csv.writer(fh, lineterminator="\n")
         w.writerow(["date", "team_a", "team_b", "best_of", "lan", "event",
                     "odds_a", "odds_b", "odds_over", "odds_under",
                     "odds_a_sweep", "odds_b_sweep"])
@@ -421,6 +421,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", default="data/fixtures.csv")
     s.add_argument("--teams", type=int, default=8)
     s.add_argument("--count", type=int, default=10)
+    s.add_argument("--date", type=parse_date, help="date initiale du calendrier (defaut aujourd'hui)")
     s.set_defaults(func=cmd_fixtures)
 
     s = sub.add_parser("slate", parents=[common],
