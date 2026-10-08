@@ -1,15 +1,22 @@
 import datetime as dt
+from pathlib import Path
 import unittest
 
 import numpy as np
 
 from cs2edge.backtest import walk_forward
 from cs2edge.features import build_datasets
-from cs2edge.schema import group_matches
+from cs2edge.schema import group_matches, read_csv
 from cs2edge.sources import simulate_history, simulate_with_truth
 
 
 class SimulationTests(unittest.TestCase):
+    def test_bundled_sample_contains_only_complete_valid_series(self):
+        root = Path(__file__).resolve().parents[1]
+        matches = group_matches(read_csv(str(root / "data/sample_matches.csv")))
+        self.assertGreater(len(matches), 400)
+        self.assertTrue(all(m.is_complete for m in matches))
+
     def test_both_regimes_are_reproducible_and_have_distinct_maps(self):
         for regime in ("facile", "realiste"):
             for seed in (3, 7, 11):
