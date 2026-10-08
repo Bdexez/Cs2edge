@@ -68,11 +68,16 @@ class SeriesTests(unittest.TestCase):
         for changes in (dict(team_b="c"), dict(date=dt.date(2026, 1, 2)),
                         dict(best_of=5), dict(event="other"), dict(lan=True)):
             with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, "incoherentes"):
-                group_matches([self.first, replace(self.first, map_index=1, **changes)])
+                group_matches([self.first, replace(self.first, map_index=1, map_name="nuke", **changes)])
 
     def test_maps_after_final_score_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "apres la fin"):
-            group_matches([replace(self.first, map_index=i) for i in range(3)])
+            group_matches([replace(self.first, map_index=i, map_name=name)
+                           for i, name in enumerate(("mirage", "nuke", "inferno"))])
+
+    def test_repeated_map_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "map dupliquee"):
+            group_matches([self.first, replace(self.first, map_index=1)])
 
     def test_legacy_missing_indices_preserve_row_order(self):
         match = group_matches([self.first, replace(self.first, map_name="nuke")])[0]

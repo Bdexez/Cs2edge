@@ -281,6 +281,8 @@ def group_matches(maps: Iterable[MapResult]) -> list[Match]:
         group = sorted(buckets[mid], key=lambda m: m.map_index)
         head = group[0]
         indices = [m.map_index for m in group]
+        if len({m.map_name for m in group}) != len(group):
+            raise ValueError(f"map dupliquee dans la serie : {mid}")
         if len(set(indices)) != len(indices) and any(indices):
             raise ValueError(f"indices de map dupliques : {mid}")
         for m in group:
