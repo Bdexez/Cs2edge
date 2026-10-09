@@ -107,6 +107,13 @@ class Pick:
     def is_actionable(self) -> bool:
         return self.verdict in ("PRONOSTIC", "VALEUR")
 
+    @property
+    def fixture_key(self) -> tuple:
+        if self.match_id:
+            return ("id", self.match_id)
+        return ("legacy", self.date, tuple(sorted((self.team_a, self.team_b))),
+                self.best_of, self.event)
+
 
 @dataclass
 class Analysis:
@@ -562,7 +569,7 @@ class Tipster:
 
 def _flag(stat: dict) -> str:
     """N'alerte que si l'ecart depasse le bruit d'echantillonnage."""
-    if stat["n"] < 30:
+    if stat.get("n_matchs", stat["n"]) < 30:
         return "   (n trop faible pour conclure)"
     return "   <- ecart reel, a corriger" if stat["significatif"] else ""
 
@@ -590,18 +597,22 @@ class TipsterRecord:
             hits = sum(1 for s in items if s.won)
             promised = sum(s.pick.probability for s in items) / n
             observed = hits / n
-            # Erreur type de la frequence observee : sans elle, on prend un
-            # ecart de bruit pour un defaut de calibration. C'est le travers
-            # classique des bilans de pronostiqueurs, qui commentent des
-            # echantillons de vingt lignes comme s'ils demontraient quelque chose.
-            se = (promised * (1 - promised) / n) ** 0.5
+            # Borne prudente : correlation positive maximale au sein d'un match.
+            # Dupliquer ses marches ne reduit donc pas artificiellement la marge.
+            clusters = {}
+            for item in items:
+                p = item.pick.probability
+                cluster = item.pick.fixture_key
+                clusters[cluster] = clusters.get(cluster, 0.0) + (p * (1 - p)) ** 0.5
+            se = sum(value**2 for value in clusters.values()) ** 0.5 / n
             out[name] = {
                 "n": n,
+                "n_matchs": len(clusters),
                 "annonce": promised,
                 "observe": observed,
                 "ecart": observed - promised,
                 "erreur_type": se,
-                "significatif": n >= 30 and abs(observed - promised) > 2 * se,
+                "significatif": len(clusters) >= 30 and abs(observed - promised) > 2 * se,
             }
         return out
 
@@ -612,22 +623,22 @@ class TipsterRecord:
             f"{len(self.settled)} pronostics emis.",
             "",
             "Par palier de confiance (un palier qui ne tient pas sa promesse ment) :",
-            f"  {'palier':<14}{'n':>6}{'annonce':>10}{'observe':>10}{'ecart':>9}    marge",
+            f"  {'palier':<14}{'n':>6}{'matchs':>7}{'annonce':>10}{'observe':>10}{'ecart':>9}    marge",
         ]
         order = {"solide": 0, "interessant": 1}
         for name, s in sorted(self.by(lambda p: p.tier).items(), key=lambda kv: order.get(kv[0], 9)):
             lines.append(
-                f"  {name:<14}{s['n']:>6}{s['annonce']:>9.1%}{s['observe']:>10.1%}"
+                f"  {name:<14}{s['n']:>6}{s['n_matchs']:>7}{s['annonce']:>9.1%}{s['observe']:>10.1%}"
                 f"{s['ecart']:>+9.1%}  +/-{2 * s['erreur_type']:.1%}{_flag(s)}"
             )
         lines += [
             "",
             "Par marche :",
-            f"  {'marche':<20}{'n':>6}{'annonce':>10}{'observe':>10}{'ecart':>9}    marge",
+            f"  {'marche':<20}{'n':>6}{'matchs':>7}{'annonce':>10}{'observe':>10}{'ecart':>9}    marge",
         ]
         for name, s in self.by(lambda p: p.market).items():
             lines.append(
-                f"  {name:<20}{s['n']:>6}{s['annonce']:>9.1%}{s['observe']:>10.1%}"
+                f"  {name:<20}{s['n']:>6}{s['n_matchs']:>7}{s['annonce']:>9.1%}{s['observe']:>10.1%}"
                 f"{s['ecart']:>+9.1%}  +/-{2 * s['erreur_type']:.1%}{_flag(s)}"
             )
         if self.dispersions:
