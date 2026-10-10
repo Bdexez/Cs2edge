@@ -22,7 +22,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from .pronostic import Pick, SettledPick, TipsterRecord, _settle
+from .pronostic import Analysis, Pick, SettledPick, TipsterRecord, _settle
 from . import __version__
 from .schema import Match, normalize_team, parse_date
 
@@ -31,6 +31,7 @@ COLUMNS = [
     "marche", "selection", "probabilite", "palier", "verdict",
     "cote", "edge", "mise", "score", "resultat", "match_id", "emis_a",
     "donnees_jusquau", "version_modele",
+    "carte_complete", "motif",
 ]
 
 
@@ -43,7 +44,7 @@ def pick_id(pick: Pick) -> str:
     return hashlib.sha1(raw.encode()).hexdigest()[:12]
 
 
-def _row(pick: Pick, issued: dt.date) -> dict:
+def _row(pick: Pick, issued: dt.date, complete_card: bool = False) -> dict:
     return {
         "pick_id": pick_id(pick),
         "emis_le": issued.isoformat(),
@@ -66,6 +67,8 @@ def _row(pick: Pick, issued: dt.date) -> dict:
         "emis_a": dt.datetime.now(dt.timezone.utc).isoformat(),
         "donnees_jusquau": pick.data_through,
         "version_modele": __version__,
+        "carte_complete": "1" if complete_card else "",
+        "motif": "; ".join(pick.rationale),
     }
 
 
@@ -84,7 +87,7 @@ def _write(path: Path, rows: Sequence[dict]) -> None:
         with tempfile.NamedTemporaryFile(mode="w", newline="", encoding="utf-8",
                                          dir=path.parent, delete=False) as fh:
             temporary = Path(fh.name)
-            writer = csv.DictWriter(fh, fieldnames=COLUMNS)
+            writer = csv.DictWriter(fh, fieldnames=COLUMNS, lineterminator="\n")
             writer.writeheader()
             writer.writerows(rows)
             fh.flush()
@@ -132,7 +135,8 @@ def _pick_from_row(row: dict) -> Pick:
     )
 
 
-def record(picks: Iterable[Pick], path: str | Path, issued: dt.date | None = None) -> int:
+def record(picks: Iterable[Pick], path: str | Path, issued: dt.date | None = None,
+           *, complete_card: bool = False) -> int:
     """Ajoute des pronostics au journal. Les doublons sont ignores.
 
     Un pronostic deja archive n'est jamais mis a jour : si l'analyse change
@@ -149,11 +153,30 @@ def record(picks: Iterable[Pick], path: str | Path, issued: dt.date | None = Non
         for pick in picks:
             identity = pick_id(pick)
             if identity not in known:
-                added.append(_row(pick, issued))
+                added.append(_row(pick, issued, complete_card))
                 known.add(identity)
         if added:
             _write(path, existing + added)
     return len(added)
+
+
+def record_card(analyses: Sequence[Analysis], path: str | Path,
+                issued: dt.date | None = None) -> int:
+    """Archive aussi les abstentions pour mesurer la couverture de toute la carte."""
+    picks = []
+    for analysis in analyses:
+        actionable = [p for p in analysis.picks if p.is_actionable]
+        if actionable:
+            picks.extend(actionable)
+            continue
+        fx, pred = analysis.fixture, analysis.prediction
+        picks.append(Pick(
+            fx.date, pred.team_a if pred else fx.team_a, pred.team_b if pred else fx.team_b,
+            fx.best_of, fx.event, "abstention", "", 0.0, "", "ABSTENTION",
+            rationale=[analysis.skipped or "aucun pronostic actionnable"], match_id=fx.match_id,
+            data_through=pred.data_quality.get("data_through", "") if pred else "",
+        ))
+    return record(picks, path, issued, complete_card=True)
 
 
 def _index(matches: Sequence[Match]) -> dict:
@@ -187,7 +210,7 @@ def _settle_locked(path: Path, results: Sequence[Match], window_days: int) -> di
     idx = _index(results)
     pointes = introuvables = ambigus = 0
     for row in rows:
-        if row.get("resultat"):
+        if row.get("resultat") or row["verdict"] not in ("PRONOSTIC", "VALEUR"):
             continue
         d = parse_date(row["date"])
         key_teams = frozenset((normalize_team(row["team_a"]), normalize_team(row["team_b"])))
@@ -228,7 +251,8 @@ def _settle_locked(path: Path, results: Sequence[Match], window_days: int) -> di
     _write(path, rows)
     return {
         "pointes": pointes,
-        "en_attente": sum(1 for r in rows if not r.get("resultat")),
+        "en_attente": sum(1 for r in rows if not r.get("resultat")
+                          and r["verdict"] in ("PRONOSTIC", "VALEUR")),
         "introuvables": introuvables,
         "ambigus": ambigus,
     }
@@ -236,8 +260,10 @@ def _settle_locked(path: Path, results: Sequence[Match], window_days: int) -> di
 
 def scorecard(journal_path: str | Path) -> TipsterRecord | None:
     """Reconstruit un bilan a partir du journal pointe."""
-    rows = [r for r in load(journal_path) if r.get("resultat")]
-    if not rows:
+    all_rows = load(journal_path)
+    rows = [r for r in all_rows if r.get("resultat")
+            and r["verdict"] in ("PRONOSTIC", "VALEUR")]
+    if not rows and not any(r["verdict"] == "ABSTENTION" for r in all_rows):
         return None
     settled = [
         SettledPick(
@@ -246,7 +272,15 @@ def scorecard(journal_path: str | Path) -> TipsterRecord | None:
         )
         for r in rows
     ]
-    return TipsterRecord(settled=settled, n_fixtures=len(rows), n_skipped=0)
+    fixtures = {_pick_from_row(r).fixture_key for r in all_rows}
+    acted = {_pick_from_row(r).fixture_key for r in all_rows
+             if r["verdict"] in ("PRONOSTIC", "VALEUR")}
+    return TipsterRecord(
+        settled=settled, n_fixtures=len(fixtures), n_skipped=len(fixtures - acted),
+        coverage_known=all(r.get("carte_complete") == "1" for r in all_rows),
+        n_pending=sum(1 for r in all_rows if r["verdict"] in ("PRONOSTIC", "VALEUR")
+                      and not r.get("resultat")),
+    )
 
 
 def financial_summary(journal_path: str | Path) -> dict | None:

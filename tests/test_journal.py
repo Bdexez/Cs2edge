@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from cs2edge import journal
-from cs2edge.pronostic import Pick, read_fixtures
+from cs2edge.pronostic import Analysis, Fixture, Pick, read_fixtures
 from cs2edge.schema import MapResult, group_matches
 
 
@@ -97,6 +97,40 @@ class JournalTests(unittest.TestCase):
         path = self.path.with_name("fixtures.csv")
         path.write_text("date,team_a,team_b,match_id\n2026-01-01,a,b,source-42\n")
         self.assertEqual(read_fixtures(path)[0].match_id, "source-42")
+
+    def test_card_archives_abstentions_and_counts_distinct_fixtures(self):
+        first = replace(self.pick, match_id="one")
+        picks = [first, replace(first, market="total maps -1.5", selection="oui")]
+        card = [Analysis(Fixture(self.day, "a", "b", 1, match_id="one"),
+                         None, None, None, [], picks),
+                Analysis(Fixture(self.day, "c", "d", 1, match_id="skip"),
+                         None, None, None, [], [], skipped="historique insuffisant")]
+        self.assertEqual(journal.record_card(card, self.path), 3)
+        self.assertEqual(journal.record_card(card, self.path), 0)
+        row = next(r for r in journal.load(self.path) if r["verdict"] == "ABSTENTION")
+        self.assertEqual(row["motif"], "historique insuffisant")
+        stats = journal.settle(self.path, self.results)
+        self.assertEqual(stats["en_attente"], 0)
+        result = journal.scorecard(self.path)
+        self.assertEqual((result.n_fixtures, result.n_skipped), (2, 1))
+        self.assertTrue(result.coverage_known)
+        self.assertEqual(len(result.settled), 2)
+
+    def test_abstention_only_card_produces_a_coverage_report(self):
+        card = [Analysis(Fixture(self.day, "a", "b", 1), None, None, None, [], [], skipped="serre")]
+        journal.record_card(card, self.path)
+        stats = journal.settle(self.path, self.results)
+        self.assertEqual((stats["pointes"], stats["en_attente"]), (0, 0))
+        record = journal.scorecard(self.path)
+        self.assertEqual((record.n_fixtures, record.n_skipped), (1, 1))
+        self.assertIn("100%", record.report())
+
+    def test_legacy_coverage_is_reported_as_unknown(self):
+        journal.record([replace(self.pick, match_id="one")], self.path)
+        journal.settle(self.path, self.results)
+        record = journal.scorecard(self.path)
+        self.assertFalse(record.coverage_known)
+        self.assertIn("Couverture des abstentions indisponible", record.report())
 
 
 if __name__ == "__main__":

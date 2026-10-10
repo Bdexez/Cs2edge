@@ -237,10 +237,8 @@ def cmd_slate(args) -> int:
     print()
     print(format_card(card, verbose=args.verbose))
     if args.record:
-        picks = [p for a in card for p in a.picks if p.is_actionable]
-        added = journal_mod.record(picks, args.record)
-        print(f"\n{added} pronostic(s) archive(s) dans {args.record} "
-              f"({len(picks) - added} deja presents).")
+        added = journal_mod.record_card(card, args.record)
+        print(f"\n{added} ligne(s) archivee(s) dans {args.record} (pronostics et abstentions).")
         print("Ils pourront etre pointes apres coup : cs2edge settle --journal "
               f"{args.record}")
     return 0

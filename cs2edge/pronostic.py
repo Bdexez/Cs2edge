@@ -586,6 +586,8 @@ class TipsterRecord:
     n_fixtures: int
     n_skipped: int
     dispersions: list[float] = field(default_factory=list)
+    coverage_known: bool = True
+    n_pending: int = 0
 
     def by(self, key) -> dict:
         groups: dict[str, list[SettledPick]] = {}
@@ -617,10 +619,17 @@ class TipsterRecord:
         return out
 
     def report(self) -> str:
-        lines = [
+        introduction = (
             f"Bilan du pronostiqueur : {self.n_fixtures} matchs presentes, "
             f"{self.n_skipped} ecartes ({self.n_skipped / max(1, self.n_fixtures):.0%}), "
-            f"{len(self.settled)} pronostics emis.",
+            f"{len(self.settled)} pronostics regles, {self.n_pending} en attente."
+            if self.coverage_known else
+            f"Bilan du journal : {self.n_fixtures} matchs distincts, "
+            f"{len(self.settled)} pronostics regles, {self.n_pending} en attente.\n"
+            "Couverture des abstentions indisponible (journal incomplet ou ancien)."
+        )
+        lines = [
+            introduction,
             "",
             "Par palier de confiance (un palier qui ne tient pas sa promesse ment) :",
             f"  {'palier':<14}{'n':>6}{'matchs':>7}{'annonce':>10}{'observe':>10}{'ecart':>9}    marge",
