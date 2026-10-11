@@ -6,7 +6,7 @@ from unittest.mock import patch
 from cs2edge.backtest import walk_forward
 from cs2edge.predict import Analyzer, combine_probability
 from cs2edge.pronostic import Fixture, Tipster, fit_decider_temperature, simulate_tipster
-from cs2edge.schema import group_matches
+from cs2edge.schema import group_matches, normalize_team
 from cs2edge.sources import simulate_history
 
 
@@ -99,6 +99,11 @@ class PredictionParityTests(unittest.TestCase):
     def test_date_before_first_result_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "aucun resultat anterieur"):
             self.an.predict("a", "b", on=dt.date(2020, 1, 1))
+
+    def test_aliases_resolve_for_in_memory_history_too(self):
+        resolved = self.an.resolve_team("mousesports")
+        self.assertEqual(normalize_team(resolved), "mousesports")
+        self.assertEqual(self.an.resolve_team("MOUZ"), resolved)
 
 
 if __name__ == "__main__":

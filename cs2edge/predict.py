@@ -280,7 +280,8 @@ class Analyzer:
         canonical = normalize_team(name)
         if self.fx and canonical in self.fx.elo.teams:
             return canonical
-        candidates = [t for t in self.known_teams() if canonical in t or t in canonical]
+        candidates = [t for t in self.known_teams()
+                      if normalize_team(t) == canonical or canonical in t or t in canonical]
         if len(candidates) == 1:
             return candidates[0]
         if candidates:
