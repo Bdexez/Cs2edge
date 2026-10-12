@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import hashlib
 import math
 import pickle
 from dataclasses import dataclass, field
@@ -276,26 +277,43 @@ class MatchPredictor:
             "last_date": self.last_date,
             "has_gbdt": self.gbdt is not None,
         }
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         if self.gbdt is not None:
-            path.with_suffix(".gbdt.pkl").write_bytes(pickle.dumps(self.gbdt))
+            blob = pickle.dumps(self.gbdt)
+            path.with_suffix(".gbdt.pkl").write_bytes(blob)
+            payload["gbdt_sha256"] = hashlib.sha256(blob).hexdigest()
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, path: str | Path) -> "MatchPredictor":
         path = Path(path)
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("version") != 1:
+            raise ValueError("version de modele non prise en charge")
+        weights = np.asarray(payload["weights"], dtype=float)
+        scales = np.asarray(payload["scales"], dtype=float)
+        resid = np.asarray(payload.get("resid") or [], dtype=float)
+        if (weights.ndim != 1 or len(weights) == 0 or scales.shape != weights.shape
+                or not np.all(np.isfinite(weights)) or not np.all(np.isfinite(scales))
+                or np.any(scales <= 0) or resid.shape not in ((0,), (len(weights)-1,))
+                or not np.all(np.isfinite(resid))
+                or len(payload["feature_names"]) not in (0, len(weights))
+                or not math.isfinite(payload["temperature"]) or payload["temperature"] <= 0):
+            raise ValueError("parametres de modele invalides")
         m = cls(l2=payload["l2"], gbdt_weight=payload["gbdt_weight"])
         m.temperature = payload["temperature"]
         m.feature_names = tuple(payload["feature_names"])
         m.trained_on = payload.get("trained_on", 0)
         m.last_date = payload.get("last_date", "")
         m.logistic = LogisticModel(l2=payload["l2"], feature_names=m.feature_names)
-        m.logistic.weights = np.array(payload["weights"], dtype=float)
-        m.logistic.scales = np.array(payload["scales"], dtype=float)
-        m.logistic.resid = np.array(payload.get("resid") or [], dtype=float)
+        m.logistic.weights, m.logistic.scales, m.logistic.resid = weights, scales, resid
         blob = path.with_suffix(".gbdt.pkl")
-        if payload.get("has_gbdt") and blob.exists():
-            m.gbdt = pickle.loads(blob.read_bytes())
+        if payload.get("has_gbdt"):
+            if not blob.is_file():
+                raise ValueError(f"composant GBDT manquant : {blob}")
+            data = blob.read_bytes()
+            if payload.get("gbdt_sha256") and hashlib.sha256(data).hexdigest() != payload["gbdt_sha256"]:
+                raise ValueError("composant GBDT incoherent avec le modele JSON")
+            m.gbdt = pickle.loads(data)
         else:
             m.gbdt = None
             m.gbdt_weight = 0.0
