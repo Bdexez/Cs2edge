@@ -14,9 +14,10 @@ import numpy as np
 
 
 def implied(odds: float) -> float:
-    if odds <= 1.0:
-        raise ValueError("une cote decimale doit etre > 1.0")
-    return 1.0 / float(odds)
+    odds = float(odds)
+    if not math.isfinite(odds) or odds <= 1.0:
+        raise ValueError("une cote decimale doit etre finie et > 1.0")
+    return 1.0 / odds
 
 
 def overround(odds_a: float, odds_b: float) -> float:

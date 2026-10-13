@@ -20,6 +20,7 @@ Deux modes, volontairement separes, parce qu'on les confond tout le temps :
 from __future__ import annotations
 
 import datetime as dt
+import math
 from dataclasses import dataclass, field
 
 from .markets import (
@@ -29,6 +30,7 @@ from .markets import (
 from .odds import devig_power, expected_value, kelly_fraction
 from .predict import Analyzer, Prediction
 from .temporal import forward_splits
+from .schema import _to_bool, normalize_team, parse_date, parse_integer
 
 # Seuils de tri. Valides par `cs2edge tipster-backtest` : chaque palier doit
 # tenir sa promesse sur l'historique, sinon il ment a son lecteur.
@@ -71,6 +73,20 @@ class Fixture:
     odds_a_sweep: float | None = None
     odds_b_sweep: float | None = None
     match_id: str = ""
+
+    def __post_init__(self):
+        self.date = parse_date(self.date)
+        self.team_a, self.team_b = normalize_team(self.team_a or ""), normalize_team(self.team_b or "")
+        if not self.team_a or not self.team_b or self.team_a == self.team_b:
+            raise ValueError("deux equipes distinctes sont requises")
+        self.best_of = parse_integer(self.best_of, "best_of")
+        if self.best_of not in (1, 3, 5):
+            raise ValueError(f"format non gere : bo{self.best_of}")
+        self.lan = _to_bool(self.lan)
+        for key in ("odds_a", "odds_b", "odds_over", "odds_under", "odds_a_sweep", "odds_b_sweep"):
+            value = getattr(self, key)
+            if value is not None and (not math.isfinite(value) or value <= 1):
+                raise ValueError(f"cote decimale invalide pour {key} : {value}")
 
     @property
     def label(self) -> str:
@@ -812,7 +828,7 @@ def read_fixtures(path: str | "Path") -> list[Fixture]:
         if not raw:
             return None
         value = float(raw)
-        if value <= 1.0:
+        if not math.isfinite(value) or value <= 1.0:
             raise ValueError(f"cote decimale invalide pour {key} : {value}")
         return value
 
@@ -829,8 +845,8 @@ def read_fixtures(path: str | "Path") -> list[Fixture]:
                         date=parse_date(row["date"]),
                         team_a=normalize_team(row["team_a"]),
                         team_b=normalize_team(row["team_b"]),
-                        best_of=int(float(row.get("best_of") or 3)),
-                        lan=str(row.get("lan", "")).strip().lower() in {"1", "true", "oui", "yes", "lan"},
+                        best_of=parse_integer(row.get("best_of") or 3, "best_of"),
+                        lan=_to_bool(row.get("lan")),
                         event=(row.get("event") or "").strip(),
                         odds_a=_f(row, "odds_a"),
                         odds_b=_f(row, "odds_b"),
