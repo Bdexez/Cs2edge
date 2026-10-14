@@ -125,6 +125,13 @@ class JournalTests(unittest.TestCase):
         self.assertEqual((record.n_fixtures, record.n_skipped), (1, 1))
         self.assertIn("100%", record.report())
 
+    def test_pending_complete_card_already_reports_coverage(self):
+        card = [Analysis(Fixture(self.day, "a", "b", 1), None, None, None, [], [self.pick])]
+        journal.record_card(card, self.path)
+        record = journal.scorecard(self.path)
+        self.assertEqual((record.n_fixtures, record.n_skipped, record.n_pending), (1, 0, 1))
+        self.assertTrue(record.coverage_known)
+
     def test_legacy_coverage_is_reported_as_unknown(self):
         journal.record([replace(self.pick, match_id="one")], self.path)
         journal.settle(self.path, self.results)

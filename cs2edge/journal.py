@@ -268,7 +268,8 @@ def scorecard(journal_path: str | Path) -> TipsterRecord | None:
     all_rows = load(journal_path)
     rows = [r for r in all_rows if r.get("resultat")
             and r["verdict"] in ("PRONOSTIC", "VALEUR")]
-    if not rows and not any(r["verdict"] == "ABSTENTION" for r in all_rows):
+    if (not rows and not any(r["verdict"] == "ABSTENTION" for r in all_rows)
+            and not any(r.get("carte_complete") == "1" for r in all_rows)):
         return None
     settled = [
         SettledPick(
