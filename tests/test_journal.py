@@ -132,6 +132,22 @@ class JournalTests(unittest.TestCase):
         self.assertFalse(record.coverage_known)
         self.assertIn("Couverture des abstentions indisponible", record.report())
 
+    def test_aliases_match_raw_in_memory_results_in_either_orientation(self):
+        pick = replace(self.pick, team_a="mousesports", team_b="g2", selection="mousesports",
+                       match_id="alias")
+        raw = replace(pick, team_a="mouz", selection="mouz")
+        self.assertEqual(journal.pick_id(pick), journal.pick_id(raw))
+        for flipped in (False, True):
+            with self.subTest(flipped=flipped):
+                path = self.path.with_name(f"alias-{flipped}.csv")
+                journal.record([pick], path)
+                result = MapResult("alias", self.day, "g2" if flipped else "mouz",
+                                   "mouz" if flipped else "g2", "mirage",
+                                   5 if flipped else 13, 13 if flipped else 5, 1)
+                stats = journal.settle(path, group_matches([result]))
+                self.assertEqual(stats["pointes"], 1)
+                self.assertEqual(journal.load(path)[0]["resultat"], "gagne")
+
 
 if __name__ == "__main__":
     unittest.main()

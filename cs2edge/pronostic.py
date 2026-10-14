@@ -127,7 +127,7 @@ class Pick:
     def fixture_key(self) -> tuple:
         if self.match_id:
             return ("id", self.match_id)
-        return ("legacy", self.date, tuple(sorted((self.team_a, self.team_b))),
+        return ("legacy", self.date, tuple(sorted((normalize_team(self.team_a), normalize_team(self.team_b)))),
                 self.best_of, self.event)
 
 

@@ -40,7 +40,9 @@ def pick_id(pick: Pick) -> str:
     teams = sorted((normalize_team(pick.team_a), normalize_team(pick.team_b)))
     fixture = (f"id:{pick.match_id}" if pick.match_id else
                f"{pick.date}|{teams}|{pick.best_of}|{pick.event}")
-    raw = f"{fixture}|{pick.market}|{pick.selection}"
+    selection = (normalize_team(pick.selection) if pick.market == "vainqueur"
+                 or pick.market.startswith("handicap") else pick.selection)
+    raw = f"{fixture}|{pick.market}|{selection}"
     return hashlib.sha1(raw.encode()).hexdigest()[:12]
 
 
@@ -183,7 +185,8 @@ def _index(matches: Sequence[Match]) -> dict:
     out = {}
     for m in matches:
         if m.is_complete:
-            out.setdefault(frozenset((m.team_a, m.team_b)), []).append(m)
+            teams = frozenset((normalize_team(m.team_a), normalize_team(m.team_b)))
+            out.setdefault(teams, []).append(m)
     return out
 
 
@@ -233,12 +236,14 @@ def _settle_locked(path: Path, results: Sequence[Match], window_days: int) -> di
         match = candidates[0]
 
         # Le journal peut avoir enregistre les equipes dans l'autre sens.
-        flipped = match.team_a != normalize_team(row["team_a"])
+        flipped = normalize_team(match.team_a) != normalize_team(row["team_a"])
         wa, wb = (match.maps_b, match.maps_a) if flipped else (match.maps_a, match.maps_b)
         pick = Pick(
-            date=d, team_a=row["team_a"], team_b=row["team_b"],
+            date=d, team_a=normalize_team(row["team_a"]), team_b=normalize_team(row["team_b"]),
             best_of=int(row["best_of"] or 3), event=row.get("event", ""),
-            market=row["marche"], selection=row["selection"],
+            market=row["marche"], selection=(normalize_team(row["selection"])
+                if row["marche"] == "vainqueur" or row["marche"].startswith("handicap")
+                else row["selection"]),
             probability=float(row["probabilite"]), tier=row["palier"],
             verdict=row["verdict"],
         )
