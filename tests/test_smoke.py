@@ -556,6 +556,15 @@ def test_lecture_des_fixtures():
             raise AssertionError("une colonne manquante doit lever une erreur")
 
 
+def load_tests(loader, suite, pattern):
+    """Expose aussi les scenarios historiques a unittest discover et a la CI."""
+    import unittest
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            suite.addTest(unittest.FunctionTestCase(fn))
+    return suite
+
+
 if __name__ == "__main__":
     import time
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
