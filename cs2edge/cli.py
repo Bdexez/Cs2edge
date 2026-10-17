@@ -300,13 +300,16 @@ def cmd_tipster_backtest(args) -> int:
 def cmd_tune(args) -> int:
     an = _analyzer(args, train=False)
     print(
-        f"\nReglage sur les {int(len(an.matches) * (1 - args.holdout)):,} premiers matchs, "
-        f"validation sur les {int(len(an.matches) * args.holdout):,} derniers.\n"
+        f"\nReglage temporel avec {args.holdout:.0%} de fin d'historique reservee, "
+        "frontieres alignees sur les journees.\n"
         "Les constantes par defaut sont ajustees sur des mondes simules realistes ;\n"
         "le bon reglage depend de la vitesse a laquelle bouge le niveau des equipes,\n"
         "qui n'est pas la meme selon la periode et le circuit couverts par vos donnees.\n"
     )
     cfg, report = tune(an.matches, holdout_frac=args.holdout, warmup_maps=args.warmup)
+    print(f"\n{report['n_matchs_reglage']} matchs de reglage ; "
+          f"{report['n_matchs_validation']} matchs de validation "
+          f"({report['validation_debut']} -> {report['validation_fin']}).")
     print(
         f"\nSur la periode de reglage  : {report['logloss_reglage_avant']:.4f} "
         f"-> {report['logloss_reglage_apres']:.4f}"
