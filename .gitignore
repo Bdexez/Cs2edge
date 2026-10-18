@@ -4,3 +4,4 @@ __pycache__/
 models/
 *.egg-info/
 data/journal.csv
+data/*.csv.lock
