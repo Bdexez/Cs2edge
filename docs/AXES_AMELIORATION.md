@@ -4,6 +4,10 @@ Audit du 10 novembre 2026, sur le commit `b48231a`, avec Python 3.14.8 et
 NumPy 2.5.4. Les constats viennent de la lecture du code, du backtest et de
 reproductions locales. Ce document propose les changements à réaliser.
 
+Les corrections apportées après cet audit et leur validation sont décrites dans
+[Améliorations implémentées](AMELIORATIONS_IMPLEMENTEES.md). Les chiffres ci-dessous
+restent ceux du commit audité ; le jeu de démonstration a depuis été régénéré.
+
 La priorité est de rendre l’évaluation représentative du comportement réellement
 servi et de garantir l’intégrité des données et du journal.
 

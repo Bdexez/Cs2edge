@@ -12,6 +12,10 @@ cs2edge turns map-level match history into pre-match probabilities, accounts for
 
 > **Data status:** the included history is synthetic and supports reproducible examples and tests. Its scores do not establish performance on real professional matches or betting returns.
 
+The [implemented improvements](docs/AMELIORATIONS_IMPLEMENTEES.md) cover chronological
+validation, matching predictions to results, input validation and automated checks.
+The [demo data notes](data/README.md) give the exact generation commands.
+
 ## Why this project is interesting
 
 | Problem | Approach |
@@ -54,7 +58,7 @@ For opposing outcomes, the core enforces **p(A) + p(B) = 1**. Calibration asks a
 ```bash
 .venv/bin/cs2edge backtest --by-year
 .venv/bin/cs2edge tipster-backtest
-.venv/bin/python -m tests.test_smoke
+.venv/bin/python -m unittest discover -s tests -v
 ```
 
 The walk-forward report compares model variants with Elo and map-level baselines, using **log-loss, Brier score, calibration error and reliability bands**. Prediction accuracy alone does not describe the quality of a probability estimate.
@@ -68,6 +72,12 @@ Journal a slate before results are known, then inspect it later:
 ```
 
 Settlement uses results present in the history CSV. It is not a live score feed.
+The journal also records abstentions and leaves ambiguous result matches pending.
+Provide the optional `match_id` in fixtures to identify repeat encounters reliably.
+
+Predictions default to today's date. A historical `--date` rebuilds the ratings
+and models from earlier days; results from the requested day are excluded because
+the input schema has no result-availability timestamps.
 
 ## Bring your own history
 
