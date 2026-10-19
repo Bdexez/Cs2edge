@@ -43,9 +43,10 @@ class _Recent:
             map_name: str, own_rating: float = 1500.0) -> None:
         self.maps.append((date, won, round_diff, opp_rating, own_rating))
         self.per_map[map_name].append((date, won, round_diff))
-        self.streak = (self.streak + 1) if won else (self.streak - 1) if self.streak <= 0 else -1
-        if won and self.streak < 0:
-            self.streak = 1
+        if won:
+            self.streak = max(0, self.streak) + 1
+        else:
+            self.streak = min(0, self.streak) - 1
         self.maps_with_roster += 1
 
 
