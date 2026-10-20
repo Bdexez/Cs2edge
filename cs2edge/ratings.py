@@ -291,7 +291,9 @@ class EloEngine:
             # qui est faux des que les deux ne sont pas aussi bien connues.
             ga, gb = g_factor(rd_a), g_factor(rd_b)
             exp_a = 1.0 / (1.0 + 10.0 ** (-gb * (ra - rb) / SCALE))
-            exp_b = 1.0 - exp_a
+            # Chaque attente utilise l'incertitude de SON adversaire.
+            # Reutiliser 1-exp_a introduisait un biais selon l'ordre des equipes.
+            exp_b = 1.0 / (1.0 + 10.0 ** (-ga * (rb - ra) / SCALE))
             var_a = 1.0 / max(Q * Q * gb * gb * exp_a * (1 - exp_a), 1e-12)
             var_b = 1.0 / max(Q * Q * ga * ga * exp_b * (1 - exp_b), 1e-12)
             den_a = 1.0 / (rd_a * rd_a) + 1.0 / var_a
