@@ -133,6 +133,7 @@ class TeamRating:
     roster: tuple[str, ...] = ()
     map_ratings: dict[str, float] = field(default_factory=dict)
     map_counts: dict[str, int] = field(default_factory=dict)
+    map_last_dates: dict[str, dt.date] = field(default_factory=dict)
     #  Regression en ligne de l'ecart de rounds sur l'ecart de note : permet de
     #  savoir ce qu'un score "aurait du" etre, sans constante magique.
     xy: float = 0.0
@@ -210,10 +211,21 @@ class EloEngine:
         played = tr.map_counts.get(map_name, 0)
         if played == 0:
             return glob
-        specific = tr.map_ratings.get(map_name, glob)
+        specific = self._specific_rating(team, map_name, on)
         # Plus l'equipe a joue la map, plus sa note specifique pese.
         w = played / (played + self.cfg.map_prior_weight * 10.0)
         return w * specific + (1.0 - w) * glob
+
+    def _specific_rating(self, team: str, map_name: str, on: dt.date | None) -> float:
+        tr = self._team(team)
+        if map_name not in tr.map_ratings:
+            return self.rating(team, on)
+        rating = tr.map_ratings[map_name]
+        last = tr.map_last_dates.get(map_name, tr.last_date)
+        if on is None or last is None:
+            return rating
+        decay = 0.5 ** (max(0, (on - last).days) / self.cfg.idle_halflife_days)
+        return BASE_RATING + (rating - BASE_RATING) * decay
 
     def maps_played(self, team: str) -> int:
         return self._team(team).maps_played
@@ -266,6 +278,9 @@ class EloEngine:
 
         ra = self.rating(a, result.date)
         rb = self.rating(b, result.date)
+        mname = result.map_name
+        mra = self._specific_rating(a, mname, result.date)
+        mrb = self._specific_rating(b, mname, result.date)
         score_a = float(result.a_won)
         ta, tb = self._team(a), self._team(b)
 
@@ -330,9 +345,6 @@ class EloEngine:
         tb.maps_played += 1
 
         # Notes specifiques a la map, sur le meme principe.
-        mname = result.map_name
-        mra = ta.map_ratings.get(mname, ra)
-        mrb = tb.map_ratings.get(mname, rb)
         exp_map_a = expected_score(mra, mrb)
         km = self.cfg.k_map * result.tier_weight
         if self.cfg.use_mov:
@@ -343,3 +355,4 @@ class EloEngine:
         tb.map_ratings[mname] = mrb - dm
         ta.map_counts[mname] = ta.map_counts.get(mname, 0) + 1
         tb.map_counts[mname] = tb.map_counts.get(mname, 0) + 1
+        ta.map_last_dates[mname] = tb.map_last_dates[mname] = result.date
