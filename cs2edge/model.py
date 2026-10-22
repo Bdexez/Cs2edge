@@ -25,6 +25,8 @@ import numpy as np
 
 from .metrics import log_loss
 from .temporal import calibration_boundary, validate_dates
+from .validation import (binary_labels, feature_matrix, finite_number,
+                         observation_weights, positive_integer)
 
 RECENCY_HALFLIFE_DAYS = 540.0
 
@@ -40,6 +42,7 @@ def logit(p: np.ndarray) -> np.ndarray:
 
 def recency_weights(dates: list[dt.date], halflife: float = RECENCY_HALFLIFE_DAYS) -> np.ndarray:
     """Le meta CS2 bouge : un match d'il y a deux ans en dit moins que celui d'hier."""
+    finite_number("halflife", halflife, strict=True)
     if not dates:
         return np.ones(0)
     last = max(dates)
@@ -90,17 +93,20 @@ class LogisticModel:
         return out
 
     def fit(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None = None) -> "LogisticModel":
-        X = np.asarray(X, dtype=float)
-        y = np.asarray(y, dtype=float)
-        if X.ndim != 2 or len(X) == 0:
-            raise ValueError("X doit etre une matrice non vide")
+        y = binary_labels(y)
+        X = feature_matrix(X, rows=len(y))
+        w = observation_weights(sample_weight, len(y))
+        finite_number("l2", self.l2)
+        finite_number("tol", self.tol, strict=True)
+        positive_integer("max_iter", self.max_iter)
+        if self.feature_names and len(self.feature_names) != X.shape[1]:
+            raise ValueError("feature_names doit nommer chaque colonne de X")
         self._fit_residualizer(X)
         X = self._apply_residual(X)
         # Mise a l'echelle sans centrage : centrer casserait l'antisymetrie.
         self.scales = np.maximum(np.sqrt(np.mean(X**2, axis=0)), 1e-6)
         Xs = X / self.scales
 
-        w = np.ones(len(y)) if sample_weight is None else np.asarray(sample_weight, dtype=float)
         # Augmentation miroir : impose la symetrie et double l'echantillon.
         Xa = np.vstack([Xs, -Xs])
         ya = np.concatenate([y, 1.0 - y])
@@ -125,7 +131,8 @@ class LogisticModel:
     def decision(self, X: np.ndarray) -> np.ndarray:
         if self.weights is None or self.scales is None:
             raise RuntimeError("modele non entraine")
-        Xr = self._apply_residual(np.asarray(X, dtype=float))
+        X = feature_matrix(np.atleast_2d(X), columns=len(self.weights))
+        Xr = self._apply_residual(X)
         return (Xr / self.scales) @ self.weights
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
@@ -174,8 +181,11 @@ class MatchPredictor:
 
     def fit(self, X: np.ndarray, y: np.ndarray, dates: list[dt.date] | None = None,
             feature_names: tuple[str, ...] = ()) -> "MatchPredictor":
-        X = np.asarray(X, dtype=float)
-        y = np.asarray(y, dtype=float)
+        y = binary_labels(y)
+        X = feature_matrix(X, rows=len(y))
+        finite_number("l2", self.l2)
+        finite_number("gbdt_weight", self.gbdt_weight, maximum=1.0)
+        finite_number("recency_halflife", self.recency_halflife, strict=True)
         if len(y) < 50:
             raise ValueError(f"trop peu de matchs pour entrainer ({len(y)}), il en faut ~50+")
         if dates is not None:
@@ -185,9 +195,10 @@ class MatchPredictor:
         if not 0 <= self.calibration_frac < 1:
             raise ValueError("calibration_frac doit etre dans [0, 1[")
         self.feature_names = feature_names or self.feature_names
+        if self.feature_names and len(self.feature_names) != X.shape[1]:
+            raise ValueError("feature_names doit nommer chaque colonne de X")
         self.trained_on = len(y)
-        if dates:
-            self.last_date = max(dates).isoformat()
+        self.last_date = max(dates).isoformat() if dates else ""
 
         # Holdout temporel (les derniers matchs) pour la calibration.
         n_cal = int(len(y) * self.calibration_frac)

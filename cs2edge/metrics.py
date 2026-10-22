@@ -4,21 +4,25 @@ from __future__ import annotations
 
 import numpy as np
 
+from .validation import positive_integer, probability_pair
+
 EPS = 1e-12
 
 
 def log_loss(y: np.ndarray, p: np.ndarray) -> float:
-    p = np.clip(np.asarray(p, dtype=float), EPS, 1 - EPS)
-    y = np.asarray(y, dtype=float)
+    y, p = probability_pair(y, p)
+    p = np.clip(p, EPS, 1 - EPS)
     return float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
 
 
 def brier(y: np.ndarray, p: np.ndarray) -> float:
-    return float(np.mean((np.asarray(p, dtype=float) - np.asarray(y, dtype=float)) ** 2))
+    y, p = probability_pair(y, p)
+    return float(np.mean((p - y) ** 2))
 
 
 def accuracy(y: np.ndarray, p: np.ndarray) -> float:
-    return float(np.mean((np.asarray(p) >= 0.5).astype(float) == np.asarray(y)))
+    y, p = probability_pair(y, p)
+    return float(np.mean((p >= 0.5).astype(float) == y))
 
 
 def baseline_log_loss(y: np.ndarray) -> float:
@@ -27,7 +31,8 @@ def baseline_log_loss(y: np.ndarray) -> float:
 
 
 def expected_calibration_error(y: np.ndarray, p: np.ndarray, bins: int = 10) -> float:
-    y, p = np.asarray(y, dtype=float), np.asarray(p, dtype=float)
+    y, p = probability_pair(y, p)
+    positive_integer("bins", bins)
     edges = np.linspace(0.0, 1.0, bins + 1)
     idx = np.clip(np.digitize(p, edges[1:-1]), 0, bins - 1)
     total = 0.0
@@ -41,7 +46,8 @@ def expected_calibration_error(y: np.ndarray, p: np.ndarray, bins: int = 10) -> 
 
 def reliability_table(y: np.ndarray, p: np.ndarray, bins: int = 10) -> list[dict]:
     """Courbe de fiabilite : proba annoncee vs frequence observee."""
-    y, p = np.asarray(y, dtype=float), np.asarray(p, dtype=float)
+    y, p = probability_pair(y, p)
+    positive_integer("bins", bins)
     edges = np.linspace(0.0, 1.0, bins + 1)
     idx = np.clip(np.digitize(p, edges[1:-1]), 0, bins - 1)
     rows = []
