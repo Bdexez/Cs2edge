@@ -19,6 +19,7 @@ import math
 from dataclasses import dataclass, field, fields
 
 from .schema import MapResult
+from .validation import finite_number
 
 BASE_RATING = 1500.0
 SCALE = 400.0
@@ -64,6 +65,20 @@ class EloConfig:
     #  la note rapide et la note lente mesure une trajectoire : une equipe qui
     #  monte et une equipe qui descend peuvent avoir la meme note aujourd'hui.
     fast_multiplier: float = 3.0
+
+    def __post_init__(self) -> None:
+        for name in ("k_base", "k_map", "map_prior_weight", "fast_multiplier"):
+            finite_number(name, getattr(self, name))
+        for name in ("idle_halflife_days", "rd_initial", "rd_min", "rd_reference", "rd_growth_days"):
+            finite_number(name, getattr(self, name), strict=True)
+        finite_number("roster_shock", self.roster_shock, maximum=1.0)
+        if self.rd_min > self.rd_initial:
+            raise ValueError("rd_min ne peut pas depasser rd_initial")
+        if not isinstance(self.lan_bonus, (int, float)) or not math.isfinite(self.lan_bonus):
+            raise ValueError("lan_bonus doit etre fini")
+        for name in ("use_mov", "use_uncertainty"):
+            if not isinstance(getattr(self, name), bool):
+                raise ValueError(f"{name} doit etre un booleen")
 
     # ------------------------------------------------------------------ I/O
 
