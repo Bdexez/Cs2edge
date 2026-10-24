@@ -16,11 +16,12 @@ from dataclasses import dataclass
 import numpy as np
 
 from .features import Dataset
-from .metrics import format_summary, log_loss, reliability_table, summarize
+from .metrics import format_summary, log_loss, paired_block_bootstrap, reliability_table, summarize
 from .model import MatchPredictor, map_predictor
 from .ratings import expected_score
 from .schema import ACTIVE_DUTY
 from .temporal import forward_splits
+from .validation import finite_number, positive_integer
 
 
 @dataclass
@@ -40,6 +41,7 @@ class BacktestResult:
     blended_raw: np.ndarray | None = None
     blend: float = 0.5
     best_blend: float | None = None
+    comparison: dict | None = None
 
     def report(self) -> str:
         lines = [
@@ -57,6 +59,18 @@ class BacktestResult:
                 format_summary("melange sans garde-fou", summarize(self.y, self.blended_raw))
             )
         lines.append(format_summary("Elo seul (reference)", self.elo_metrics))
+        if self.comparison is not None:
+            c = self.comparison
+            lines.append(f"Gain log-loss face a Elo : {c['gain']:+.4f} (positif = mieux).")
+            if c["low"] is None:
+                lines.append("IC indisponible : moins de deux blocs calendaires observes.")
+            else:
+                lines.append(f"IC 95% apparie [{c['low']:+.4f}, {c['high']:+.4f}], "
+                             f"{c['blocks']} blocs de {c['block_days']} jours, "
+                             f"{c['samples']} tirages.")
+                if c["low"] <= 0 <= c["high"]:
+                    lines.append("L'intervalle inclut zero : l'avantage sur Elo reste incertain.")
+                lines.append("Intervalle conditionnel a cette periode ; ne mesure pas un changement de meta.")
         if self.best_blend is not None:
             lines.append(
                 f"\nPoids optimal mesure sur cette periode : w={self.best_blend:.2f} "
@@ -98,6 +112,8 @@ def walk_forward(
     blend: float = 0.5,
     momentum: float = 0.0,
     evaluation_start: dt.date | None = None,
+    bootstrap_samples: int = 0,
+    block_days: int = 7,
     **model_kwargs,
 ) -> BacktestResult:
     """Entraine sur [0, i), predit [i, i+refit_every), avance, recommence.
@@ -105,6 +121,10 @@ def walk_forward(
     Si `map_ds` est fourni, evalue aussi la lecture par maps et leur melange,
     c'est-a-dire exactement ce que sert `Analyzer.predict`.
     """
+    finite_number("blend", blend, maximum=1.0)
+    if isinstance(bootstrap_samples, bool) or not isinstance(bootstrap_samples, int) or bootstrap_samples < 0:
+        raise ValueError("bootstrap_samples doit etre un entier positif ou nul")
+    positive_integer("block_days", block_days)
     n = len(ds)
     splits = forward_splits(ds.dates, initial_frac, min_train, refit_every, evaluation_start)
     start = splits[0][0]
@@ -187,6 +207,9 @@ def walk_forward(
         blended_raw=blended_raw,
         blend=blend,
         best_blend=best,
+        comparison=(paired_block_bootstrap(y, preds, elo_only, ds.dates[start:],
+                                          samples=bootstrap_samples, block_days=block_days)
+                    if bootstrap_samples else None),
     )
 
 

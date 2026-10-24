@@ -114,6 +114,8 @@ def cmd_backtest(args) -> int:
         initial_frac=args.initial_frac,
         refit_every=args.refit_every,
         blend=args.blend,
+        bootstrap_samples=args.bootstrap_samples,
+        block_days=args.block_days,
         use_gbdt=not args.no_gbdt,
     )
     print()
@@ -404,6 +406,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="poids du modele match dans le melange (1 = lui seul)")
     s.add_argument("--no-maps", action="store_true",
                    help="n'evaluer que le modele match")
+    s.add_argument("--bootstrap-samples", type=int, default=1000,
+                   help="tirages pour l'IC apparie face a Elo (defaut 1000, 0 desactive)")
+    s.add_argument("--block-days", type=int, default=7,
+                   help="taille des blocs calendaires de l'IC (defaut 7 jours)")
     s.set_defaults(func=cmd_backtest)
 
     s = sub.add_parser("predict", parents=[common], help="probabilites pour un match a venir")

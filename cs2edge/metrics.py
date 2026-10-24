@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 import numpy as np
 
 from .validation import positive_integer, probability_pair
@@ -88,3 +90,36 @@ def format_summary(name: str, s: dict) -> str:
         f"(base {s['baseline_log_loss']:.4f}, skill {s['skill_score']:+.1%})  "
         f"acc={s['accuracy']:.1%}  brier={s['brier']:.4f}  ece={s['ece']:.3f}"
     )
+
+
+def paired_block_bootstrap(y, p, reference, dates: list[dt.date], *,
+                           samples: int = 1000, block_days: int = 7, seed: int = 0) -> dict:
+    """IC percentile apparie du gain de log-loss, par blocs calendaires.
+
+    Un bloc est tire entier : les matchs proches ne sont pas traites comme
+    autant de preuves independantes. Les deux modeles voient les memes tirages.
+    L'IC reste conditionnel a la periode et aux modeles deja evalues.
+    """
+    y, p = probability_pair(y, p)
+    _, reference = probability_pair(y, reference)
+    positive_integer("samples", samples)
+    positive_integer("block_days", block_days)
+    if len(dates) != len(y) or any(type(d) is not dt.date for d in dates):
+        raise ValueError("une date calendaire est requise pour chaque resultat")
+    p = np.clip(p, EPS, 1 - EPS)
+    reference = np.clip(reference, EPS, 1 - EPS)
+    gain = y * np.log(p / reference) + (1 - y) * np.log((1 - p) / (1 - reference))
+    _, blocks = np.unique([d.toordinal() // block_days for d in dates], return_inverse=True)
+    counts = np.bincount(blocks)
+    totals = np.bincount(blocks, weights=gain)
+    out = dict(gain=float(gain.mean()), low=None, high=None, blocks=len(counts),
+               block_days=block_days, samples=samples, confidence=.95, seed=seed)
+    if len(counts) < 2:
+        return out
+    rng = np.random.default_rng(seed)
+    draws = []
+    for start in range(0, samples, 64):
+        chosen = rng.integers(0, len(counts), size=(min(64, samples-start), len(counts)))
+        draws.extend((totals[chosen].sum(axis=1) / counts[chosen].sum(axis=1)).tolist())
+    out["low"], out["high"] = map(float, np.quantile(draws, [.025, .975]))
+    return out

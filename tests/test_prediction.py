@@ -41,8 +41,12 @@ class PredictionParityTests(unittest.TestCase):
         fx = Fixture(cutoff, meta["team_a"], meta["team_b"], meta["best_of"],
                      meta["lan"], meta["event"], match_id=meta["match_id"])
         live = past.predict(fx.team_a, fx.team_b, fx.best_of, fx.lan, fx.date)
-        result = walk_forward(ds, maps, initial_frac=.6, refit_every=len(ds), use_gbdt=False)
+        result = walk_forward(ds, maps, initial_frac=.6, refit_every=len(ds), use_gbdt=False,
+                              bootstrap_samples=100)
         self.assertAlmostEqual(result.predictions[0], live.p_a, places=12)
+        self.assertAlmostEqual(result.comparison["gain"],
+                               result.elo_metrics["log_loss"]-result.metrics["log_loss"])
+        self.assertIn("IC 95% apparie", result.report())
         replay = simulate_tipster(ds, maps, initial_frac=.6, refit_every=len(ds),
                                  abstention=.5, use_gbdt=False, decider_temperature=1.0)
         winner = next(s.pick for s in replay.settled
