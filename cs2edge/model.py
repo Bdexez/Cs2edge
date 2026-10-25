@@ -177,23 +177,32 @@ class MatchPredictor:
     trained_on: int = 0
     last_date: str = ""
 
+    def __post_init__(self) -> None:
+        self.validate_config()
+
+    def validate_config(self) -> None:
+        finite_number("l2", self.l2)
+        finite_number("gbdt_weight", self.gbdt_weight, maximum=1.0)
+        finite_number("recency_halflife", self.recency_halflife, strict=True)
+        finite_number("calibration_frac", self.calibration_frac)
+        if self.calibration_frac >= 1:
+            raise ValueError("calibration_frac doit etre dans [0, 1[")
+        if not isinstance(self.use_gbdt, bool):
+            raise ValueError("use_gbdt doit etre un booleen")
+
     # ------------------------------------------------------------------- train
 
     def fit(self, X: np.ndarray, y: np.ndarray, dates: list[dt.date] | None = None,
             feature_names: tuple[str, ...] = ()) -> "MatchPredictor":
         y = binary_labels(y)
         X = feature_matrix(X, rows=len(y))
-        finite_number("l2", self.l2)
-        finite_number("gbdt_weight", self.gbdt_weight, maximum=1.0)
-        finite_number("recency_halflife", self.recency_halflife, strict=True)
+        self.validate_config()
         if len(y) < 50:
             raise ValueError(f"trop peu de matchs pour entrainer ({len(y)}), il en faut ~50+")
         if dates is not None:
             if len(dates) != len(y):
                 raise ValueError("une date est requise pour chaque resultat")
             validate_dates(dates)
-        if not 0 <= self.calibration_frac < 1:
-            raise ValueError("calibration_frac doit etre dans [0, 1[")
         self.feature_names = feature_names or self.feature_names
         if self.feature_names and len(self.feature_names) != X.shape[1]:
             raise ValueError("feature_names doit nommer chaque colonne de X")
