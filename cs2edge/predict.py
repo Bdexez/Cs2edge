@@ -193,6 +193,19 @@ class Analyzer:
 
     # ------------------------------------------------------------------ setup
 
+    def save(self, path: str | Path) -> None:
+        """Sauvegarde un instantane autonome, remplacant atomiquement le fichier."""
+        from .snapshot import save_analyzer
+
+        save_analyzer(self, path)
+
+    @classmethod
+    def load(cls, path: str | Path) -> "Analyzer":
+        """Restaure l'etat et les deux modeles, sans nouvel entrainement."""
+        from .snapshot import load_analyzer
+
+        return load_analyzer(path)
+
     def load_csv(self, path: str | Path) -> "Analyzer":
         return self.load_maps(read_csv(str(path)))
 

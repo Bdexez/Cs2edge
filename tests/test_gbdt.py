@@ -4,10 +4,13 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
 from cs2edge.model import MatchPredictor
+from cs2edge.predict import Analyzer
+from cs2edge.sources import simulate_history
 
 
 class GBDTTests(unittest.TestCase):
@@ -54,6 +57,26 @@ class GBDTTests(unittest.TestCase):
             blob.write_bytes(blob.read_bytes() + b"different artifact")
             with self.assertRaisesRegex(ValueError, "GBDT incoherent"):
                 MatchPredictor.load(path)
+
+    def test_complete_analyzer_snapshot_keeps_the_actual_ensemble(self):
+        maps = simulate_history(n_teams=8, years=1, seed=11, start=dt.date(2023, 1, 1))
+        an = Analyzer().load_maps(maps).train(use_gbdt=True)
+        self.assertIsNotNone(an.match_model.gbdt)
+        on = max(m.date for m in maps) + dt.timedelta(days=1)
+        a, b = an.known_teams()[:2]
+        expected = an.predict(a, b, on=on)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "analyzer.cs2edge"
+            an.save(path)
+            with patch.object(MatchPredictor, "fit", side_effect=AssertionError("refit")):
+                restored = Analyzer.load(path)
+                self.assertIsNotNone(restored.match_model.gbdt)
+                self.assertIsNone(restored.map_model.gbdt)
+                self.assertEqual(restored.predict(a, b, on=on), expected)
+            for version in (None, "incompatible"):
+                with patch("cs2edge.snapshot._sklearn_version", return_value=version):
+                    with self.assertRaisesRegex(ValueError, "meme version de scikit-learn"):
+                        Analyzer.load(path)
 
 
 if __name__ == "__main__":
