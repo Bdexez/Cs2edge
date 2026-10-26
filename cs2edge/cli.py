@@ -26,7 +26,15 @@ DEFAULT_DATA = "data/sample_matches.csv"
 
 
 def _analyzer(args, train: bool = True) -> Analyzer:
-    path = Path(args.data)
+    if getattr(args, "model", None):
+        if args.data is not None or args.warmup is not None or args.no_gbdt or args.elo_config:
+            raise ValueError("--model fournit deja les donnees et la configuration ; "
+                             "retirer --data, --warmup, --no-gbdt et --elo-config")
+        an = Analyzer.load(args.model)
+        print(f"Analyseur charge depuis {args.model} : {len(an.maps)} maps, "
+              f"historique jusqu'au {an.match_model.last_date}", file=sys.stderr)
+        return an
+    path = Path(args.data or DEFAULT_DATA)
     if not path.exists():
         sys.exit(
             f"fichier introuvable : {path}\n"
@@ -36,7 +44,7 @@ def _analyzer(args, train: bool = True) -> Analyzer:
     elo = EloConfig.load(args.elo_config) if getattr(args, "elo_config", None) else None
     if elo is not None:
         print(f"Constantes de notation chargees depuis {args.elo_config}", file=sys.stderr)
-    an = Analyzer(elo_config=elo, warmup_maps=args.warmup).load_csv(path)
+    an = Analyzer(elo_config=elo, warmup_maps=12 if args.warmup is None else args.warmup).load_csv(path)
     if not an.matches:
         raise ValueError(f"aucun resultat exploitable dans {path}")
     print(
@@ -98,10 +106,14 @@ def cmd_train(args) -> int:
         print(f"  {name:<22} {w:+.4f}  {bar}")
     print(f"\nTemperature de calibration : {an.match_model.temperature:.3f}")
     print(f"GBDT actif : {an.match_model.gbdt is not None}")
-    out = Path(args.out)
+    out = Path(args.bundle or args.out or "models/match.json")
     out.parent.mkdir(parents=True, exist_ok=True)
-    an.match_model.save(out)
-    print(f"\nModele enregistre -> {out}")
+    if args.bundle:
+        an.save(out)
+        print(f"\nAnalyseur autonome enregistre -> {out}")
+    else:
+        an.match_model.save(out)
+        print(f"\nModele match enregistre -> {out}")
     print("Pour une mesure honnete de la performance : cs2edge backtest")
     return 0
 
@@ -308,7 +320,7 @@ def cmd_tune(args) -> int:
         "le bon reglage depend de la vitesse a laquelle bouge le niveau des equipes,\n"
         "qui n'est pas la meme selon la periode et le circuit couverts par vos donnees.\n"
     )
-    cfg, report = tune(an.matches, holdout_frac=args.holdout, warmup_maps=args.warmup)
+    cfg, report = tune(an.matches, holdout_frac=args.holdout, warmup_maps=an.warmup_maps)
     print(f"\n{report['n_matchs_reglage']} matchs de reglage ; "
           f"{report['n_matchs_validation']} matchs de validation "
           f"({report['validation_debut']} -> {report['validation_fin']}).")
@@ -373,7 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     _common_options(common)
     _common_options(p)
-    p.set_defaults(data=DEFAULT_DATA, warmup=12, no_gbdt=False, elo_config=None)
+    p.set_defaults(data=None, warmup=None, no_gbdt=False, elo_config=None)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("sample", help="genere un historique synthetique", parents=[common])
@@ -395,7 +407,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_ratings)
 
     s = sub.add_parser("train", parents=[common], help="entraine et sauvegarde le modele")
-    s.add_argument("--out", default="models/match.json")
+    target = s.add_mutually_exclusive_group()
+    target.add_argument("--out", help="modele match JSON seul (defaut models/match.json)")
+    target.add_argument("--bundle", help="instantane autonome de l'analyseur, reutilisable avec --model")
     s.set_defaults(func=cmd_train)
 
     s = sub.add_parser("backtest", parents=[common], help="validation walk-forward (la seule qui compte)")
@@ -413,6 +427,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_backtest)
 
     s = sub.add_parser("predict", parents=[common], help="probabilites pour un match a venir")
+    s.add_argument("--model", help="instantane d'analyseur produit par train --bundle")
     s.add_argument("team_a")
     s.add_argument("team_b")
     s.add_argument("--bo", type=int, default=3, choices=[1, 3, 5])
@@ -433,6 +448,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("slate", parents=[common],
                        help="la carte de pronostics des matchs a venir")
+    s.add_argument("--model", help="instantane d'analyseur produit par train --bundle")
     s.add_argument("--fixtures", required=True, help="CSV des matchs a venir")
     s.add_argument("--record", help="archive les pronostics dans ce journal")
     s.add_argument("--verbose", action="store_true", help="affiche la loi du score")
@@ -480,7 +496,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (ValueError, RuntimeError) as exc:
+    except (ValueError, RuntimeError, OSError) as exc:
         sys.exit(f"erreur : {exc}")
 
 
