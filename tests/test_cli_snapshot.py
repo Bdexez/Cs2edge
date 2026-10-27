@@ -1,4 +1,5 @@
 import contextlib
+from argparse import Namespace
 import datetime as dt
 import io
 import os
@@ -7,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from cs2edge.cli import main
+from cs2edge.cli import _tipster, main
 from cs2edge.journal import load as load_journal
 from cs2edge.model import MatchPredictor
 from cs2edge.predict import Analyzer
@@ -75,6 +76,20 @@ class CliSnapshotTests(unittest.TestCase):
     def test_missing_model_reports_a_clear_cli_error(self):
         with self.assertRaisesRegex(SystemExit, "erreur :"):
             main(["predict", self.a, self.b, "--model", str(self.root / "missing.cs2edge")])
+
+    def test_explicit_momentum_overrides_saved_value_and_automatic_mode(self):
+        an = Analyzer.load(self.bundle)
+        for mode in ("0", ".15"):
+            an.momentum, an._momentum_auto = .3, True
+            an._snapshots["old"] = object()
+            with contextlib.redirect_stderr(io.StringIO()):
+                tipster = _tipster(an, Namespace(momentum=mode, no_calibration=True))
+            self.assertEqual(an.momentum, float(mode))
+            self.assertFalse(an._momentum_auto)
+            self.assertFalse(an._snapshots)
+            self.assertEqual(tipster.momentum, float(mode))
+        with self.assertRaisesRegex(ValueError, "momentum doit etre fini"):
+            _tipster(an, Namespace(momentum="nan", no_calibration=True))
 
 
 if __name__ == "__main__":

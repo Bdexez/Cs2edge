@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import math
 import sys
 from pathlib import Path
 
@@ -199,9 +200,15 @@ def _tipster(an: Analyzer, args) -> Tipster:
                 f"(+/-{2 * diag.get('erreur_type', 0):.3f}) : laisse a zero.",
                 file=sys.stderr,
             )
-    elif mode != "0":
-        an.momentum = float(mode)
-        print(f"Momentum inter-maps force a {an.momentum:+.3f} en logit.", file=sys.stderr)
+    else:
+        momentum = float(mode)
+        if not math.isfinite(momentum):
+            raise ValueError("le momentum doit etre fini")
+        an.momentum = momentum
+        an._momentum_auto = False
+        an._snapshots.clear()
+        if an.momentum:
+            print(f"Momentum inter-maps force a {an.momentum:+.3f} en logit.", file=sys.stderr)
 
     temp = (
         1.0 if getattr(args, "no_calibration", False)
