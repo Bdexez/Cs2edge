@@ -15,6 +15,8 @@ cs2edge turns map-level match history into pre-match probabilities, accounts for
 The [implemented improvements](docs/AMELIORATIONS_IMPLEMENTEES.md) cover chronological
 validation, matching predictions to results, input validation and automated checks.
 The [demo data notes](data/README.md) give the exact generation commands.
+The [latest improvements](docs/NOUVEAUX_AXES_IMPLEMENTES.md) add rating fixes,
+reusable analyzer snapshots and uncertainty intervals for backtests.
 
 ## Why this project is interesting
 
@@ -41,6 +43,21 @@ python -m venv .venv
 
 The shipped CSV is ready for a first run. `cs2edge sample` regenerates synthetic history; `cs2edge fixtures` creates example upcoming matches. An optional GBDT ensemble is available with `pip install -e ".[gbdt]"`.
 
+Train once and reuse the complete analyzer:
+
+```bash
+.venv/bin/cs2edge train --no-gbdt --bundle models/analyzer.cs2edge
+.venv/bin/cs2edge predict navi g2 --model models/analyzer.cs2edge
+.venv/bin/cs2edge slate --model models/analyzer.cs2edge --fixtures data/fixtures.csv
+```
+
+The bundle includes both models, configuration and history. Future predictions
+reuse the fitted models without the source CSV; historical dates rebuild from
+earlier days. `--model` cannot be combined with training or data options.
+GBDT bundles require the same scikit-learn version and must come from a trusted
+source because their GBDT component uses Python pickle. `train --out` continues
+to export the match model alone.
+
 ## Inside the model
 
 | Stage | Implementation |
@@ -62,6 +79,11 @@ For opposing outcomes, the core enforces **p(A) + p(B) = 1**. Calibration asks a
 ```
 
 The walk-forward report compares model variants with Elo and map-level baselines, using **log-loss, Brier score, calibration error and reliability bands**. Prediction accuracy alone does not describe the quality of a probability estimate.
+
+It also reports a paired 95% interval for the log-loss gain over Elo, resampling
+whole calendar blocks. Defaults are 1,000 draws and seven-day blocks; use
+`--bootstrap-samples` and `--block-days` to change them. This interval describes
+the evaluated period and does not establish performance under a different meta.
 
 Journal a slate before results are known, then inspect it later:
 
@@ -91,6 +113,7 @@ The application does not include a match scraper. See the [input schema and exam
 | :--- | :--- |
 | [`ratings.py`](cs2edge/ratings.py), [`features.py`](cs2edge/features.py) | Chronological ratings and feature extraction |
 | [`model.py`](cs2edge/model.py), [`metrics.py`](cs2edge/metrics.py) | Estimation, calibration and scoring |
+| [`snapshot.py`](cs2edge/snapshot.py) | Complete analyzer persistence and integrity checks |
 | [`markets.py`](cs2edge/markets.py) | Veto and series-score distributions |
 | [`backtest.py`](cs2edge/backtest.py), [`pronostic.py`](cs2edge/pronostic.py) | Evaluation and selective prediction rules |
 | [`journal.py`](cs2edge/journal.py), [`cli.py`](cs2edge/cli.py) | Recorded predictions and command-line entry points |

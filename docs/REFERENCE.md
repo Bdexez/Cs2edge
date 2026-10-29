@@ -379,6 +379,27 @@ directly.
 
 ---
 
+## Reusing a trained analyzer
+
+```bash
+cs2edge train --no-gbdt --bundle models/analyzer.cs2edge
+cs2edge predict navi g2 --model models/analyzer.cs2edge
+cs2edge slate --model models/analyzer.cs2edge --fixtures data/fixtures.csv
+```
+
+The single archive includes the history, Elo configuration, feature schemas and
+both fitted predictors. Future predictions need no source CSV and fit no new
+model. Historical dates still rebuild using only earlier days. Data and training
+options (`--data`, `--warmup`, `--no-gbdt`, `--elo-config`) conflict with `--model`;
+train a new bundle to change them. Explicit `--momentum 0` on a slate overrides
+the saved value and its automatic estimation mode.
+
+`Analyzer.save(path)` and `Analyzer.load(path)` expose the same feature in Python.
+Loading checks component hashes, schemas and model/history compatibility. GBDT
+bundles require the same scikit-learn version and use pickle: load bundles only
+from trusted sources. `train --out models/match.json` retains the match-only
+JSON export and does not produce a complete analyzer.
+
 ## Measuring, and distrusting flattering numbers
 
 ```bash
@@ -393,6 +414,12 @@ Elo rating already encodes later matches.
 The report shows the **log-loss** and a `skill score` (log-loss reduction against a
 coin flip), compared against three references: match model alone, map-level
 reading alone, and raw Elo.
+
+The gain over Elo includes a paired 95% bootstrap interval. Entire calendar
+blocks are resampled for both models together: `--bootstrap-samples` defaults
+to 1000 (`0` disables it), and `--block-days` defaults to 7. An interval crossing
+zero leaves the advantage uncertain. The interval is conditional on the tested
+period; use larger blocks to check sensitivity to longer dependencies.
 
 > [!WARNING]
 > **Accuracy is a poor indicator.** Raw Elo often shows *higher* accuracy than the
@@ -437,10 +464,10 @@ increased coverage by **~40 %**, without any market stepping outside its margin.
 > [!WARNING]
 > **The shipped data is synthetic.** `cs2edge sample` simulates a credible history,
 > which makes it possible to run the whole chain without real data — but a simulated
-> world is **far more predictable** than the real one. The ~78 % accuracy obtained on
-> it means nothing. On real data, expect **62–68 % accuracy** and a skill score of
-> **0.10–0.20**. A number markedly above that is a sign of temporal leakage, not of
-> success.
+> world does not establish performance on real professional matches. The current
+> reproducible results are in the [latest verification report](NOUVEAUX_AXES_IMPLEMENTES.md).
+> Real-world performance requires a representative chronological dataset and
+> independent evaluation; no accuracy range or betting return is established here.
 
 **The ceiling is low, and it is structural.** Pro CS2 is a high-variance sport: a map
 is played over 24 rounds, a bo3 turns on two duels. An irreducible part of the outcome
@@ -479,10 +506,11 @@ cs2edge/
   odds.py       margin removal, expected value, Kelly
   markets.py    veto, score distribution, derived markets, margin calibration
   predict.py    orchestration and prediction report
+  snapshot.py   complete analyzer archive, schema and integrity checks
   pronostic.py  selectivity, tiers, reasoning, tipster backtest
   journal.py    archiving of calls, settling, track record
   cli.py        command-line interface
-tests/          32 end-to-end tests, no external dependency
+tests/          unittest suite, including 32 historical scenarios and optional GBDT tests
 ```
 
 The tipster's decision rules live in a **pure function**, called both by the live

@@ -2,6 +2,8 @@
 
 Travail réalisé à partir de l’[audit initial](AXES_AMELIORATION.md). Les correctifs,
 les tests et les données de démonstration sont répartis en commits thématiques.
+Ce document décrit la première série, terminée au commit `5b9c0d2` ; les
+[nouveaux axes implémentés](NOUVEAUX_AXES_IMPLEMENTES.md) décrivent la suite.
 
 | Axe | Comportement obtenu | Vérification |
 | --- | --- | --- |
@@ -58,7 +60,7 @@ verrous habituels dans `data/` sont ignorés par Git.
 Le catalogue BO5 propose les lignes ±1,5 et ±2,5. Le sens du handicap suit la
 marge de maps, et non une assimilation de chaque handicap négatif au sweep.
 
-**Résultats locaux vérifiés le 10 novembre 2026**
+**Résultats locaux de la première série, vérifiés le 10 novembre 2026**
 
 Python 3.14.8, NumPy 2.5.4 et scikit-learn 1.9.1 : **91 tests réussis**, dont
 les 32 scénarios historiques. Le cœur NumPy a aussi été vérifié séparément,
@@ -96,5 +98,6 @@ par date et les informations de composition disponibles avant les matchs
 restent des travaux distincts. Le [jeu livré](../data/README.md) reste synthétique
 avec un pool fixe et sans effectifs. Les marges statistiques regroupent les
 pronostics d’une rencontre ; les dépendances entre rencontres d’un même tournoi
-nécessiteraient une validation par blocs plus larges. La sauvegarde actuelle
-porte sur le modèle match, sans constituer un instantané complet de l’analyseur.
+nécessitent une validation par blocs plus larges. La série suivante ajoute
+des intervalles par blocs calendaires au backtest et un instantané autonome
+de l’analyseur ; voir les [nouveaux résultats](NOUVEAUX_AXES_IMPLEMENTES.md).
