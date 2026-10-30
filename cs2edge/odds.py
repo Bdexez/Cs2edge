@@ -38,7 +38,11 @@ def devig_power(odds_a: float, odds_b: float) -> tuple[float, float]:
     Corrige mieux le biais favori/outsider que le retrait proportionnel.
     """
     ia, ib = implied(odds_a), implied(odds_b)
-    lo, hi = 0.5, 2.0
+    # La racine est positive, sans borne universelle a 0.5 ou 2 : une
+    # surcote comme une marge tres forte peut sortir de cet ancien intervalle.
+    lo, hi = 0.0, 1.0
+    while ia**hi + ib**hi > 1.0:
+        hi *= 2.0
     for _ in range(80):
         k = (lo + hi) / 2.0
         s = ia**k + ib**k
