@@ -12,6 +12,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .validation import finite_number
+
+
+def _probability(p: float) -> None:
+    finite_number("probabilite", p, maximum=1.0)
+
 
 def implied(odds: float) -> float:
     odds = float(odds)
@@ -57,6 +63,8 @@ def devig_power(odds_a: float, odds_b: float) -> tuple[float, float]:
 
 def expected_value(p: float, odds: float) -> float:
     """Rendement attendu par unite misee."""
+    _probability(p)
+    implied(odds)
     return float(p * (odds - 1.0) - (1.0 - p))
 
 
@@ -67,9 +75,11 @@ def kelly_fraction(p: float, odds: float, cap: float = 0.05, scale: float = 0.25
     un quart de Kelly, plafonne, ce qui divise la variance sans effondrer la
     croissance esperee.
     """
+    _probability(p)
+    implied(odds)
+    finite_number("cap", cap, maximum=1.0)
+    finite_number("scale", scale, maximum=1.0)
     b = float(odds) - 1.0
-    if b <= 0:
-        return 0.0
     f = (p * b - (1.0 - p)) / b
     return float(max(0.0, min(cap, f * scale)))
 
@@ -101,6 +111,8 @@ def find_value(
     min_edge: float = 0.03,
 ) -> ValueBet | None:
     """Retourne le cote qui offre de la valeur, ou None si le marche est correct."""
+    _probability(p_a)
+    finite_number("min_edge", min_edge, maximum=1.0)
     ma, mb = devig_power(odds_a, odds_b)
     cands = [
         ValueBet(team_a, p_a, ma, odds_a, p_a - ma, expected_value(p_a, odds_a),
@@ -114,6 +126,12 @@ def find_value(
 
 def simulate_flat(results: list[tuple[float, float, int]], stake: float = 1.0) -> dict:
     """ROI a mise fixe. `results` = [(proba modele, cote prise, gagne 0/1)]."""
+    finite_number("stake", stake, strict=True)
+    for p, odds, won in results:
+        _probability(p)
+        implied(odds)
+        if won not in (0, 1):
+            raise ValueError("le resultat d'un pari doit etre 0 ou 1")
     if not results:
         return {"bets": 0, "roi": 0.0, "profit": 0.0, "turnover": 0.0, "hit_rate": 0.0}
     profit = sum((odds - 1.0) * stake if won else -stake for _p, odds, won in results)
