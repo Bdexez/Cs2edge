@@ -23,6 +23,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from .validation import finite_number, positive_integer
+
 EPS = 1e-9
 
 
@@ -32,7 +34,27 @@ def _logit(p: float) -> float:
 
 
 def _sigmoid(z: float) -> float:
-    return 1.0 / (1.0 + math.exp(-z))
+    if z >= 0:
+        return 1.0 / (1.0 + math.exp(-z))
+    e = math.exp(z)
+    return e / (1.0 + e)
+
+
+def _validate_format(best_of: int) -> None:
+    positive_integer("best_of", best_of)
+    if best_of not in (1, 3, 5):
+        raise ValueError(f"format non gere : bo{best_of}")
+
+
+def _validate_maps(maps: list[tuple[str, float]]) -> None:
+    names = []
+    for name, p in maps:
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("chaque map doit avoir un nom non vide")
+        finite_number("probabilite de map", p, maximum=1.0)
+        names.append(name)
+    if len(names) != len(set(names)):
+        raise ValueError("les maps doivent etre distinctes")
 
 
 @dataclass
@@ -66,12 +88,13 @@ def project_veto(map_probs: list[tuple[str, float]], best_of: int) -> VetoPlan:
     adverse plutot que selon leur propre force - mais elle capture l'essentiel
     et se trompe dans le bon sens : elle rend la serie plus equilibree, pas moins.
     """
-    if best_of not in (1, 3, 5):
-        raise ValueError(f"format non gere : bo{best_of}")
+    _validate_format(best_of)
+    _validate_maps(map_probs)
     # Trie decroissant : le plus favorable a A en tete.
     pool = sorted(map_probs, key=lambda kv: -kv[1])
-    if len(pool) < best_of + 2:
-        raise ValueError(f"pool trop petit ({len(pool)} maps) pour un bo{best_of}")
+    if not pool or (best_of >= 3 and len(pool) != 7):
+        raise ValueError(f"le veto bo{best_of} exige "
+                         + ("un pool de sept maps" if best_of >= 3 else "un pool non vide"))
 
     plan = VetoPlan(order=[])
     # bo1 : uniquement des bans, en alternance, jusqu'a ce qu'il reste une map.
@@ -146,6 +169,11 @@ def series_distribution(
     modeles publics l'imposent a l'intuition, ce qui revient a inventer du
     signal.
     """
+    _validate_format(best_of)
+    _validate_maps(order)
+    if len(order) != best_of:
+        raise ValueError(f"une serie bo{best_of} exige {best_of} maps ordonnees")
+    finite_number("momentum", momentum, minimum=-math.inf)
     need = best_of // 2 + 1
     scores: dict[tuple[int, int], float] = {}
 
@@ -153,10 +181,8 @@ def series_distribution(
         if wa == need or wb == need:
             scores[(wa, wb)] = scores.get((wa, wb), 0.0) + prob
             return
-        if idx >= len(order):  # securite : ne devrait pas arriver
-            scores[(wa, wb)] = scores.get((wa, wb), 0.0) + prob
-            return
-        p = _sigmoid(_logit(order[idx][1]) + shift)
+        raw = order[idx][1]
+        p = raw if raw in (0.0, 1.0) else _sigmoid(_logit(raw) + shift)
         walk(idx + 1, wa + 1, wb, prob * p, shift + momentum)
         walk(idx + 1, wa, wb + 1, prob * (1 - p), shift - momentum)
 
