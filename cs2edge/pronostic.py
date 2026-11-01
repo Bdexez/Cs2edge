@@ -31,6 +31,7 @@ from .odds import devig_power, expected_value, kelly_fraction
 from .predict import Analyzer, Prediction
 from .temporal import forward_splits
 from .schema import _to_bool, normalize_team, parse_date, parse_integer
+from .validation import finite_number
 
 # Seuils de tri. Valides par `cs2edge tipster-backtest` : chaque palier doit
 # tenir sa promesse sur l'historique, sinon il ment a son lecteur.
@@ -161,13 +162,14 @@ def shape_series(veto, best_of: int, p_a: float, momentum: float, decider_temp: 
     exact" issus du meme match pourraient se contredire - defaut classique des
     grilles de pronostics, et immediatement visible pour un lecteur attentif.
     """
-    import math
+    from .markets import _sigmoid
 
+    finite_number("decider_temperature", decider_temp, strict=True)
     dist = series_distribution(veto.order, best_of, momentum)
     if best_of < 3:
         return enforce_margins(dist, p_a, 1.0)
     raw = min(max(dist.p_maps_played(best_of), 1e-6), 1 - 1e-6)
-    p_full = 1.0 / (1.0 + math.exp(-(math.log(raw / (1 - raw)) / max(decider_temp, 1e-6))))
+    p_full = _sigmoid(math.log(raw / (1-raw))/decider_temp)
     return enforce_margins(dist, p_a, p_full)
 
 

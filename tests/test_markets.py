@@ -1,6 +1,7 @@
 import unittest
 
-from cs2edge.markets import build_markets, project_veto, series_distribution
+from cs2edge.markets import SeriesDistribution, build_markets, enforce_margins, project_veto, series_distribution
+from cs2edge.pronostic import shape_series
 
 
 class HandicapTests(unittest.TestCase):
@@ -52,6 +53,43 @@ class SeriesInputTests(unittest.TestCase):
             self.assertEqual(dist.p_a, probability)
         with self.assertRaises(ValueError):
             series_distribution([("a", .5)], 1, momentum=float("inf"))
+
+
+class MarginReconciliationTests(unittest.TestCase):
+    def test_both_margins_hold_for_nearly_degenerate_distributions_and_boundaries(self):
+        for bo in (3, 5):
+            raw = series_distribution([(str(i), .999999 if i % 2 == 0 else .000001)
+                                       for i in range(bo)], bo)
+            for winner in (0., 1e-8, .2, .8, 1-1e-8, 1.):
+                for full in (0., 1e-8, .2, .8, 1-1e-8, 1.):
+                    with self.subTest(bo=bo, winner=winner, full=full):
+                        dist = enforce_margins(raw, winner, full)
+                        self.assertAlmostEqual(dist.p_a, winner, places=12)
+                        self.assertAlmostEqual(dist.p_maps_played(bo), full, places=12)
+                        self.assertAlmostEqual(sum(dist.scores.values()), 1., places=12)
+                        self.assertTrue(all(p >= 0 for p in dist.scores.values()))
+
+    def test_association_and_relative_scores_within_each_cell_are_preserved(self):
+        raw = series_distribution([(str(i), .3+i*.12) for i in range(5)], 5)
+        adjusted = enforce_margins(raw, .72, .41)
+        def association(dist):
+            win_full = dist.p_score(3, 2)
+            lose_full = dist.p_score(2, 3)
+            return win_full * (1-dist.p_a-lose_full) / ((dist.p_a-win_full)*lose_full)
+        self.assertAlmostEqual(association(raw), association(adjusted), places=10)
+        self.assertAlmostEqual(raw.p_score(3, 0)/raw.p_score(3, 1),
+                               adjusted.p_score(3, 0)/adjusted.p_score(3, 1), places=10)
+
+    def test_sparse_terminal_distribution_and_small_temperature_are_supported(self):
+        raw = SeriesDistribution({(2, 0): 1.}, [("a", 1.), ("b", 1.), ("c", 1.)], 3)
+        result = enforce_margins(raw, .8, .4)
+        self.assertAlmostEqual(result.p_a, .8)
+        self.assertAlmostEqual(result.p_maps_played(3), .4)
+        plan = project_veto([(str(i), .999) for i in range(7)], 3)
+        result = shape_series(plan, 3, .8, 0., .0001)
+        self.assertAlmostEqual(result.p_a, .8)
+        with self.assertRaises(ValueError):
+            enforce_margins(series_distribution([("a", .5)], 1), .5, .5)
 
 
 if __name__ == "__main__":

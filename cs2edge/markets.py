@@ -358,55 +358,59 @@ def enforce_margins(
     (calibree ci-dessus). Le reste - comment se repartissent les scores a
     l'interieur de chaque cas - reste ce que le modele en dit.
 
-    Ajustement proportionnel iteratif sur le tableau 2x2 (vainqueur x longueur).
-    C'est l'outil fait pour ca : il atteint les deux marges tout en preservant
-    l'association entre les deux dimensions.
+    Le tableau 2x2 (vainqueur x longueur) n'a qu'un degre de liberte une fois
+    ses marges fixees. Une dichotomie sur cette cellule conserve le rapport
+    des produits croises du tableau initial, comme l'ajustement proportionnel,
+    sans l'erreur de convergence d'un nombre fixe d'iterations IPF.
     """
+    _validate_format(dist.best_of)
+    finite_number("p_a", p_a, maximum=1.0)
+    finite_number("p_full_length", p_full_length, maximum=1.0)
+    positive_integer("iterations", iterations)
     need = dist.best_of // 2 + 1
     full = dist.best_of
+    possible = {(need, losses) for losses in range(need)} | {(losses, need) for losses in range(need)}
+    if not dist.scores or not set(dist.scores) <= possible:
+        raise ValueError("la distribution doit contenir uniquement des scores terminaux")
+    for probability in dist.scores.values():
+        finite_number("masse de score", probability, maximum=1.0)
+    if not math.isclose(sum(dist.scores.values()), 1.0, abs_tol=1e-9):
+        raise ValueError("la distribution doit totaliser un")
+    if dist.best_of == 1:
+        if p_full_length != 1.0:
+            raise ValueError("un bo1 a toujours une seule map")
+        return SeriesDistribution({(1, 0): p_a, (0, 1): 1-p_a}, dist.order, 1)
 
     def cell(wins_a_side: bool, is_full: bool) -> list[tuple[int, int]]:
         return [
-            k for k, _ in dist.scores.items()
+            k for k in sorted(possible)
             if ((k[0] == need) == wins_a_side) and ((k[0] + k[1] == full) == is_full)
         ]
 
     cells = {
         (w, f): cell(w, f) for w in (True, False) for f in (True, False)
     }
-    if any(not keys for keys in cells.values()):
-        # bo1, ou format degenere : la longueur n'est pas une dimension libre.
-        # On n'impose alors que la marge du vainqueur.
-        scores = {
-            k: (p_a if k[0] == need else 1 - p_a) * (
-                v / max(sum(q for kk, q in dist.scores.items() if (kk[0] == need) == (k[0] == need)), 1e-12)
-            )
-            for k, v in dist.scores.items()
-        }
-        tot = sum(scores.values())
-        return SeriesDistribution(
-            scores={k: v / tot for k, v in scores.items()},
-            order=dist.order, best_of=dist.best_of,
-        )
     mass = {
         key: max(sum(dist.scores.get(k, 0.0) for k in keys), 1e-9)
         for key, keys in cells.items()
     }
-
-    row_target = {True: max(p_a, 1e-9), False: max(1 - p_a, 1e-9)}
-    col_target = {True: max(p_full_length, 1e-9), False: max(1 - p_full_length, 1e-9)}
-
-    for _ in range(iterations):
-        for w in (True, False):
-            cur = mass[(w, True)] + mass[(w, False)]
-            f = row_target[w] / cur
-            mass[(w, True)] *= f
-            mass[(w, False)] *= f
-        for fl in (True, False):
-            cur = mass[(True, fl)] + mass[(False, fl)]
-            f = col_target[fl] / cur
-            mass[(True, fl)] *= f
-            mass[(False, fl)] *= f
+    log_ratio = (math.log(mass[True, True]) + math.log(mass[False, False])
+                 - math.log(mass[True, False]) - math.log(mass[False, True]))
+    lo, hi = max(0., p_a-(1-p_full_length)), min(p_a, p_full_length)
+    # Au moins 80 pas assurent la precision flottante meme pour un tableau
+    # presque degenere. L'ancien argument reste accepte pour compatibilite.
+    for _ in range(max(80, iterations)):
+        x = (lo+hi)/2
+        ratio = (math.log(max(x, 1e-300)) + math.log(max((1-p_a)-(p_full_length-x), 1e-300))
+                 - math.log(max(p_a-x, 1e-300)) - math.log(max(p_full_length-x, 1e-300)))
+        if ratio < log_ratio:
+            lo = x
+        else:
+            hi = x
+    x = (lo+hi)/2
+    mass = {(True, True): x, (True, False): max(0., p_a-x),
+            (False, True): max(0., p_full_length-x),
+            (False, False): max(0., (1-p_a)-(p_full_length-x))}
 
     scores: dict[tuple[int, int], float] = {}
     for key, keys in cells.items():
