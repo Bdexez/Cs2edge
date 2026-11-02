@@ -190,6 +190,7 @@ class Analyzer:
         self._training_options: dict = {}
         self._momentum_auto = False
         self._snapshots: dict = {}
+        self._calibration_history = None
 
     # ------------------------------------------------------------------ setup
 
@@ -214,6 +215,7 @@ class Analyzer:
         self.matches = group_matches(self.maps)
         self.match_model = self.map_model = None
         self._snapshots.clear()
+        self._calibration_history = None
         self.match_ds, self.map_ds, self.fx = build_datasets(
             self.matches, self.elo_config, self.warmup_maps
         )
@@ -224,6 +226,7 @@ class Analyzer:
             raise RuntimeError("charger des donnees avant d'entrainer")
         self._training_options = dict(kwargs)
         self._snapshots.clear()
+        self._calibration_history = None
         self.match_model = MatchPredictor(**kwargs).fit(
             self.match_ds.X, self.match_ds.y, self.match_ds.dates, self.match_ds.feature_names
         )
@@ -257,6 +260,18 @@ class Analyzer:
 
     def known_teams(self) -> list[str]:
         return sorted(self.fx.elo.teams) if self.fx else []
+
+    def calibration_history(self):
+        """Historique hors entrainement partage par les calibrations et mis en cache."""
+        from .calibration import prequential_maps
+
+        if self.map_model is None:
+            raise RuntimeError("entrainer avant de calibrer")
+        if self._calibration_history is None:
+            self._calibration_history = prequential_maps(
+                self.match_ds, self.map_ds, **self._training_options
+            )
+        return self._calibration_history
 
     def estimate_momentum(self) -> dict:
         """Mesure l'effet d'enchainement entre maps sur l'historique charge.

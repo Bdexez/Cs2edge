@@ -699,7 +699,7 @@ def _settle(pick: Pick, meta: dict, y_a: float) -> bool:
     raise ValueError(f"marche non reglable : {pick.market}")
 
 
-def _fit_decider_on(match_ds, map_model, upto: int, lookback: int = 800,
+def _fit_decider_on(match_ds, history, upto: int, lookback: int = 800,
                     momentum: float = 0.0) -> float:
     """Calibre la longueur de serie sur les matchs *anterieurs* a `upto`."""
     from .schema import ACTIVE_DUTY
@@ -708,9 +708,9 @@ def _fit_decider_on(match_ds, map_model, upto: int, lookback: int = 800,
     for r in range(max(0, upto - lookback), upto):
         meta = match_ds.meta[r]
         bo = meta.get("best_of", 3)
-        if bo < 3:
+        if bo < 3 or not history.trained_through[r]:
             continue
-        ps = map_model.predict_proba(match_ds.pool_X[r])
+        ps = history.pools[r]
         plan = project_veto(list(zip(ACTIVE_DUTY, ps.tolist())), bo)
         dist = series_distribution(plan.order, bo, momentum)
         wa, wb = (int(x) for x in meta["score"].split("-"))
@@ -741,6 +741,7 @@ def simulate_tipster(
     from .model import MatchPredictor, map_predictor
     from .predict import combine_probability, confidence_label
     from .schema import ACTIVE_DUTY
+    from .calibration import prequential_maps
 
     n = len(match_ds)
     splits = forward_splits(match_ds.dates, initial_frac, min_train, refit_every)
@@ -749,6 +750,8 @@ def simulate_tipster(
     settled: list[SettledPick] = []
     dispersions: list[float] = []
     n_skipped = 0
+    calibration_history = (prequential_maps(match_ds, map_ds, **model_kwargs)
+                           if decider_temperature is None else None)
     for i, j in splits:
         model = MatchPredictor(**model_kwargs).fit(
             match_ds.X[:i], match_ds.y[:i], match_ds.dates[:i], match_ds.feature_names
@@ -761,7 +764,7 @@ def simulate_tipster(
         p_match_all = model.predict_proba(match_ds.X[i:j])
         t_fold = decider_temperature
         if t_fold is None:
-            t_fold = _fit_decider_on(match_ds, map_model, i, momentum=momentum)
+            t_fold = _fit_decider_on(match_ds, calibration_history, i, momentum=momentum)
         dispersions.append(t_fold)
 
         for r in range(i, j):
@@ -949,5 +952,5 @@ def fit_decider_temperature(analyzer, momentum: float = 0.0) -> float:
     if analyzer.match_ds is None or analyzer.map_model is None:
         raise RuntimeError("charger et entrainer avant de calibrer")
     return _fit_decider_on(
-        analyzer.match_ds, analyzer.map_model, len(analyzer.match_ds), momentum=momentum
+        analyzer.match_ds, analyzer.calibration_history(), len(analyzer.match_ds), momentum=momentum
     )
