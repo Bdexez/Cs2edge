@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from cs2edge.calibration import prequential_maps
+from cs2edge.calibration import CalibrationHistory, prequential_maps
 from cs2edge.model import MatchPredictor
 from cs2edge.predict import Analyzer
 from cs2edge.pronostic import _fit_decider_on, fit_decider_temperature
@@ -58,6 +58,21 @@ class PrequentialCalibrationTests(unittest.TestCase):
         self.assertEqual(temperature, _fit_decider_on(an.match_ds, first, len(an.match_ds)))
         an.train(use_gbdt=False)
         self.assertIsNone(an._calibration_history)
+
+    def test_cache_rejects_probabilities_with_no_past_provenance(self):
+        original = self.an.calibration_history().to_dict()
+        index = next(i for i, last in enumerate(original["trained_through"]) if last)
+        for mode in ("date", "probability", "missing-map"):
+            import copy
+            payload = copy.deepcopy(original)
+            if mode == "date":
+                payload["trained_through"][index] = self.an.match_ds.dates[index].isoformat()
+            elif mode == "probability":
+                payload["pools"][index][0] = 2.
+            else:
+                payload["maps"].pop()
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                CalibrationHistory.from_dict(payload, self.an.match_ds, self.an.map_ds)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ import tempfile
 from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile
 
 from . import __version__
+from .calibration import CalibrationHistory
 from .features import FeatureExtractor
 from .model import MatchPredictor
 from .ratings import EloConfig
@@ -25,7 +26,7 @@ from .schema import ACTIVE_DUTY, MapResult, parse_date
 from .validation import finite_number
 
 _REQUIRED = {"history.json", "match.json", "map.json"}
-_ALLOWED = _REQUIRED | {"match.gbdt.pkl", "map.gbdt.pkl"}
+_ALLOWED = _REQUIRED | {"match.gbdt.pkl", "map.gbdt.pkl", "calibration.json"}
 _MODEL_OPTIONS = ("l2", "use_gbdt", "gbdt_weight", "calibration_frac", "recency_halflife")
 
 
@@ -59,8 +60,9 @@ def save_analyzer(an, path: str | Path) -> None:
             model.save(root / f"{name}.json")
         files = {p.name: p.read_bytes() for p in root.iterdir()}
     files["history.json"] = _json_bytes(history)
+    files["calibration.json"] = _json_bytes(an.calibration_history().to_dict())
     manifest = dict(
-        format="cs2edge.analyzer", version=1, feature_pipeline=1, schemas=_schemas(),
+        format="cs2edge.analyzer", version=2, feature_pipeline=1, schemas=_schemas(),
         created_at=dt.datetime.now(dt.timezone.utc).isoformat(), package_version=__version__,
         sklearn_version=_sklearn_version() if an.match_model.gbdt is not None else None,
         elo=an.fx.elo.cfg.to_dict(), warmup_maps=an.warmup_maps,
@@ -98,9 +100,11 @@ def load_analyzer(path: str | Path):
                     or not _REQUIRED <= files or not files <= _ALLOWED):
                 raise ValueError("contenu d'instantane incomplet ou inconnu")
             manifest = json.loads(archive.read("manifest.json"))
-            if (manifest.get("format") != "cs2edge.analyzer" or manifest.get("version") != 1
+            if (manifest.get("format") != "cs2edge.analyzer" or manifest.get("version") not in (1, 2)
                     or manifest.get("feature_pipeline") != 1 or manifest.get("schemas") != _schemas()):
                 raise ValueError("version ou schema d'instantane incompatible")
+            if (manifest["version"] == 2) != ("calibration.json" in files):
+                raise ValueError("historique de calibration incompatible avec la version d'instantane")
             if set(manifest.get("sha256", {})) != files:
                 raise ValueError("inventaire d'instantane incoherent")
             blobs = {name: archive.read(name) for name in files}
@@ -131,7 +135,7 @@ def load_analyzer(path: str | Path):
                       manifest["momentum"]).load_maps(history)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for name in files - {"history.json"}:
+            for name in files - {"history.json", "calibration.json"}:
                 (root / name).write_bytes(blobs[name])
             an.match_model = MatchPredictor.load(root / "match.json")
             an.map_model = MatchPredictor.load(root / "map.json")
@@ -148,6 +152,10 @@ def load_analyzer(path: str | Path):
                 setattr(model, name, value)
         an.map_model.use_gbdt = False
         an._momentum_auto = manifest["momentum_auto"]
+        if "calibration.json" in blobs:
+            an._calibration_history = CalibrationHistory.from_dict(
+                json.loads(blobs["calibration.json"]), an.match_ds, an.map_ds
+            )
         return an
     except (BadZipFile, KeyError, TypeError, AttributeError, UnicodeError, EOFError) as exc:
         raise ValueError(f"instantane illisible ou incomplet : {exc}") from exc

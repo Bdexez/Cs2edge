@@ -10,6 +10,7 @@ import numpy as np
 
 from cs2edge.predict import Analyzer
 from cs2edge.ratings import EloConfig
+from cs2edge.pronostic import fit_decider_temperature
 from cs2edge.sources import simulate_history
 
 
@@ -31,6 +32,7 @@ class SnapshotTests(unittest.TestCase):
                     patch("cs2edge.model.MatchPredictor.fit", side_effect=AssertionError("refit")):
                 restored = Analyzer.load(path)
                 actual = restored.predict(a, b, on=self.on)
+                self.assertEqual(fit_decider_temperature(restored), fit_decider_temperature(self.an))
             self.assertEqual(restored.maps, self.maps)
             self.assertEqual(actual, expected)
             self.assertEqual(restored.elo_config, self.an.fx.elo.cfg)
@@ -101,6 +103,27 @@ class SnapshotTests(unittest.TestCase):
                     self.an.save(path)
             self.assertEqual(path.read_bytes(), previous)
             self.assertEqual(list(Path(tmp).iterdir()), [path])
+
+    def test_legacy_bundle_still_loads_and_calibration_can_be_built_on_demand(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy.cs2edge"
+            self.an.save(path)
+            with ZipFile(path) as archive:
+                files = {name: archive.read(name) for name in archive.namelist()}
+            manifest = json.loads(files["manifest.json"])
+            manifest["version"] = 1
+            del manifest["sha256"]["calibration.json"]
+            del files["calibration.json"]
+            files["manifest.json"] = json.dumps(manifest).encode()
+            with ZipFile(path, "w") as archive:
+                for name, blob in files.items():
+                    archive.writestr(name, blob)
+            with patch("cs2edge.model.MatchPredictor.fit", side_effect=AssertionError("refit")):
+                restored = Analyzer.load(path)
+                self.assertIsNone(restored._calibration_history)
+                a, b = self.an.known_teams()[:2]
+                self.assertEqual(restored.predict(a, b, on=self.on), self.an.predict(a, b, on=self.on))
+            self.assertEqual(fit_decider_temperature(restored), fit_decider_temperature(self.an))
 
 
 if __name__ == "__main__":
