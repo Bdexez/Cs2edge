@@ -91,6 +91,15 @@ class CliSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "momentum doit etre fini"):
             _tipster(an, Namespace(momentum="nan", no_calibration=True))
 
+    def test_default_slate_uses_saved_prequential_calibration_without_fitting(self):
+        fixtures = self.root / "default-fixtures.csv"
+        fixtures.write_text("date,team_a,team_b,best_of\n"
+                            f"{self.on},{self.a},{self.b},3\n")
+        with patch.object(MatchPredictor, "fit", side_effect=AssertionError("refit")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["slate", "--model", str(self.bundle),
+                                   "--fixtures", str(fixtures)]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

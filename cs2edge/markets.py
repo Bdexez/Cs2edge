@@ -193,35 +193,26 @@ def series_distribution(
     return SeriesDistribution(scores=scores, order=order, best_of=best_of)
 
 
-def estimate_momentum(matches, map_model, extractor) -> dict:
-    """Mesure l'effet d'enchainement sur des donnees reelles.
+def _fit_momentum(samples: list[tuple[float, int, int, int, str]]) -> dict:
+    """Offset logistique + bilan cumule, avec erreur type regroupee par match.
 
-    Question posee : sachant tout ce que le modele sait deja des deux equipes
-    et de la map, gagner la map precedente apporte-t-il une information
-    supplementaire ? On compare le taux de victoire observe sur la map n+1
-    apres une victoire sur la map n, a ce que le modele predisait.
-
-    Retourne le decalage en logit a passer a `series_distribution`.
+    Echantillon : (proba hors entrainement, resultat, bilan avant la map,
+    resultat precedent, identifiant). Le bilan est celui utilise dans la loi
+    du score, qui ajoute +/- momentum apres chaque map.
     """
-    from .schema import ACTIVE_DUTY  # import local : evite un cycle
+    import numpy as np
+    from .model import logit, sigmoid
 
     after_win = {"pred": 0.0, "obs": 0.0, "n": 0}
     after_loss = {"pred": 0.0, "obs": 0.0, "n": 0}
-
-    for match in sorted(matches, key=lambda m: (m.date, m.match_id)):
-        maps = sorted(match.maps, key=lambda x: x.map_index)
-        if len(maps) >= 2 and extractor.elo.maps_played(match.team_a) > 20:
-            for i in range(1, len(maps)):
-                prev, cur = maps[i - 1], maps[i]
-                x = extractor.map_features(match.team_a, match.team_b, match.date, cur.map_name)
-                p = map_model.predict_one(x)
-                bucket = after_win if prev.a_won else after_loss
-                bucket["pred"] += p
-                bucket["obs"] += cur.a_won
-                bucket["n"] += 1
-        extractor.observe_match(match)
-
-    out = {}
+    for p, y, _balance, previous, _key in samples:
+        bucket = after_win if previous else after_loss
+        bucket["pred"] += p
+        bucket["obs"] += y
+        bucket["n"] += 1
+    groups = {sample[4] for sample in samples}
+    out = dict(significatif=False, n_total=len(samples), n_matchs=len(groups),
+               methode="prequentiel, offset logistique, variance par rencontre")
     for label, b in (("apres_victoire", after_win), ("apres_defaite", after_loss)):
         if b["n"] < 30:
             out[label] = None
@@ -232,20 +223,68 @@ def estimate_momentum(matches, map_model, extractor) -> dict:
             "observe": b["obs"] / b["n"],
             "ecart": (b["obs"] - b["pred"]) / b["n"],
         }
-    if out.get("apres_victoire") and out.get("apres_defaite"):
-        w, l = out["apres_victoire"], out["apres_defaite"]
-        # Decalage symetrique : moitie de l'ecart total entre les deux etats.
-        shift = 0.5 * (
-            _logit(w["observe"]) - _logit(w["predit"]) - _logit(l["observe"]) + _logit(l["predit"])
-        )
-        n = w["n"] + l["n"]
-        # Erreur type approximative sur ce decalage, pour savoir s'il est reel.
-        se = math.sqrt(1.0 / max(1, w["n"]) + 1.0 / max(1, l["n"])) * 2.0
-        out["momentum"] = shift
-        out["erreur_type"] = se
-        out["significatif"] = abs(shift) > 2 * se
-        out["n_total"] = n
+    if not out["apres_victoire"] or not out["apres_defaite"] or len(groups) < 20:
+        out["motif"] = "historique hors entrainement insuffisant"
+        return out
+    z = logit(np.array([s[0] for s in samples]))
+    y = np.array([s[1] for s in samples])
+    balance = np.array([s[2] for s in samples])
+    def score(beta):
+        return float(np.sum(balance * (y-sigmoid(z+beta*balance))))
+    lo, hi = -1., 1.
+    while score(lo) < 0 and lo > -64:
+        lo *= 2
+    while score(hi) > 0 and hi < 64:
+        hi *= 2
+    if score(lo) <= 0 or score(hi) >= 0:
+        out["motif"] = "effet non identifiable ou separation des resultats"
+        return out
+    for _ in range(80):
+        middle = (lo+hi)/2
+        if score(middle) > 0:
+            lo = middle
+        else:
+            hi = middle
+    beta = (lo+hi)/2
+    p = sigmoid(z+beta*balance)
+    information = float(np.sum(balance**2*p*(1-p)))
+    if information < 1e-8:
+        out["motif"] = "information insuffisante pour estimer l'effet"
+        return out
+    cluster_scores = {key: 0. for key in groups}
+    for sample, residual in zip(samples, balance*(y-p)):
+        cluster_scores[sample[4]] += float(residual)
+    variance = len(groups)/(len(groups)-1) * sum(s*s for s in cluster_scores.values())
+    se = math.sqrt(variance)/information
+    out.update(momentum=beta, erreur_type=se, significatif=abs(beta) > 2*se)
     return out
+
+
+def estimate_momentum(matches, map_model=None, extractor=None, *, history=None) -> dict:
+    """Estime sur des predictions anterieures, sans reutiliser les cibles d'apprentissage.
+
+    Les anciens arguments restent acceptes pour fournir les hyperparametres.
+    Leurs coefficients ajustes ne servent jamais a predire leur propre passe.
+    """
+    if history is None:
+        from .calibration import prequential_maps
+        from .features import build_datasets
+
+        config = extractor.elo.cfg if extractor is not None else None
+        ds, maps, _ = build_datasets(matches, config)
+        names = ("l2", "gbdt_weight", "calibration_frac", "recency_halflife")
+        options = {name: getattr(map_model, name) for name in names} if map_model is not None else {}
+        history = prequential_maps(ds, maps, **options)
+    samples = []
+    for match in matches:
+        maps = sorted(match.maps, key=lambda mp: mp.map_index)
+        balance = 0
+        for index, current in enumerate(maps):
+            p = history.maps.get((match.match_id, current.map_name))
+            if index and p is not None:
+                samples.append((p, current.a_won, balance, maps[index-1].a_won, match.match_id))
+            balance += 1 if current.a_won else -1
+    return _fit_momentum(samples)
 
 
 # ---------------------------------------------------------------- marches

@@ -42,6 +42,9 @@ class PrequentialCalibrationTests(unittest.TestCase):
         cutoff = ds.dates[-100]
         upto = next(i for i, day in enumerate(ds.dates) if day == cutoff)
         before = prequential_maps(ds, pds)
+        prefix = prequential_maps(ds.slice(np.arange(upto)),
+                                  pds.slice(np.flatnonzero([day < cutoff for day in pds.dates])))
+        np.testing.assert_array_equal(prefix.pools, before.pools[:upto])
         changed = Analyzer().load_maps([replace(mp, rounds_a=mp.rounds_b, rounds_b=mp.rounds_a)
                                         if mp.date >= cutoff else mp for mp in self.maps])
         after = prequential_maps(changed.match_ds, changed.map_ds)

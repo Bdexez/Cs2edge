@@ -283,12 +283,11 @@ class Analyzer:
         inventerait du momentum la ou il n'y en a pas, defaut classique des
         modeles publics.
         """
-        from .features import FeatureExtractor
         from .markets import estimate_momentum
 
         if self.map_model is None:
             raise RuntimeError("entrainer le modele avant d'estimer le momentum")
-        return estimate_momentum(self.matches, self.map_model, FeatureExtractor(self.elo_config))
+        return estimate_momentum(self.matches, history=self.calibration_history())
 
     def apply_estimated_momentum(self) -> dict:
         """Estime le momentum et l'active seulement s'il est significatif.
