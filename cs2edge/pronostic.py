@@ -54,6 +54,13 @@ EDGE_ABSURDE = 0.22
 STAKE_CAP_PER_FIXTURE = 0.05
 
 
+def _validate_options(momentum: float, edge_min: float, abstention: float, temperature: float) -> None:
+    finite_number("momentum", momentum, minimum=-math.inf)
+    finite_number("edge_min", edge_min, maximum=1.)
+    finite_number("abstention", abstention, minimum=.5, maximum=1.)
+    finite_number("decider_temperature", temperature, strict=True)
+
+
 @dataclass
 class Fixture:
     """Un match a venir."""
@@ -192,6 +199,8 @@ def select_analysis_picks(
     en deux exemplaires finit toujours par diverger, et le bilan devient faux
     sans que personne ne s'en apercoive.
     """
+    finite_number("p_a", p_a, maximum=1.)
+    finite_number("abstention", abstention, minimum=.5, maximum=1.)
     picks: list[Pick] = []
     favorite = team_a if p_a >= 0.5 else team_b
     p_fav = max(p_a, 1 - p_a)
@@ -281,6 +290,7 @@ class Tipster:
         decider_temperature: float = 1.0,
         calibrate_decider: bool = False,
     ) -> None:
+        _validate_options(momentum, edge_min, abstention, decider_temperature)
         self.an = analyzer
         self.momentum = momentum
         # Calibration du marche "la serie va-t-elle a la derniere map".
@@ -744,6 +754,8 @@ def simulate_tipster(
     from .calibration import prequential_maps
 
     n = len(match_ds)
+    _validate_options(momentum, EDGE_MIN, abstention,
+                      1. if decider_temperature is None else decider_temperature)
     splits = forward_splits(match_ds.dates, initial_frac, min_train, refit_every)
     start = splits[0][0]
 
