@@ -38,7 +38,7 @@ jobs:
         run: |
           cs2edge train --no-gbdt --bundle /tmp/analyzer.cs2edge
           cs2edge predict navi g2 --model /tmp/analyzer.cs2edge --date 2026-11-11
-          cs2edge slate --model /tmp/analyzer.cs2edge --fixtures data/fixtures.csv --momentum 0 --no-calibration --record /tmp/journal.csv
+          cs2edge slate --model /tmp/analyzer.cs2edge --fixtures data/fixtures.csv --record /tmp/journal.csv
 
   gbdt:
     name: Optional GBDT / Python 3.12
@@ -60,4 +60,4 @@ jobs:
         run: |
           cs2edge train --bundle /tmp/analyzer.cs2edge
           cs2edge predict navi g2 --model /tmp/analyzer.cs2edge --date 2026-11-11
-          cs2edge slate --model /tmp/analyzer.cs2edge --fixtures data/fixtures.csv --momentum 0 --no-calibration --record /tmp/journal.csv
+          cs2edge slate --model /tmp/analyzer.cs2edge --fixtures data/fixtures.csv --record /tmp/journal.csv
