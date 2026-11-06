@@ -683,8 +683,8 @@ class TipsterRecord:
             lines += [
                 "",
                 f"Calibration de la longueur de serie, reestimee a chaque fold : "
-                f"T = {lo:.2f} a {hi:.2f} (1.00 = le modele de veto tombe juste ; "
-                f"au-dessus, il annonce des series trop longues).",
+                f"T = {lo:.2f} a {hi:.2f} (1.00 = probabilite brute ; au-dessus, "
+                f"rapproche de 50% ; en dessous, eloigne de 50%).",
             ]
         return "\n".join(lines)
 
