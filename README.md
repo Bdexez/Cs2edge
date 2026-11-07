@@ -15,8 +15,10 @@ cs2edge turns map-level match history into pre-match probabilities, accounts for
 The [implemented improvements](docs/AMELIORATIONS_IMPLEMENTEES.md) cover chronological
 validation, matching predictions to results, input validation and automated checks.
 The [demo data notes](data/README.md) give the exact generation commands.
-The [latest improvements](docs/NOUVEAUX_AXES_IMPLEMENTES.md) add rating fixes,
+The [previous improvements](docs/NOUVEAUX_AXES_IMPLEMENTES.md) add rating fixes,
 reusable analyzer snapshots and uncertainty intervals for backtests.
+The [latest reliability work](docs/FIABILITE_CALIBRATION.md) fixes odds calculations,
+series probabilities and calibration using predictions made before each result.
 
 ## Why this project is interesting
 
@@ -57,6 +59,8 @@ earlier days. `--model` cannot be combined with training or data options.
 GBDT bundles require the same scikit-learn version and must come from a trusted
 source because their GBDT component uses Python pickle. `train --out` continues
 to export the match model alone.
+New bundles also include the historical predictions used for derived-market
+calibration. Older v1 bundles build that cache on demand when calibration is requested.
 
 ## Inside the model
 
@@ -65,6 +69,7 @@ to export the match model alone.
 | **Normalize and group** | Align team names, map names and map-level rows into match series. |
 | **Build past-only features** | Maintain ratings and map-strength history as matches are observed. |
 | **Estimate and calibrate** | NumPy IRLS logistic regression, probability calibration and opposing-outcome symmetry. |
+| **Calibrate derived markets** | Rolling predictions trained on strictly earlier days, shared by live calibration and backtests. |
 | **Model the series** | Project the veto and derive series-score probabilities. |
 | **Select and record** | Generate explanations, abstain when rules require it and archive predictions in a journal. |
 
@@ -114,6 +119,7 @@ The application does not include a match scraper. See the [input schema and exam
 | [`ratings.py`](cs2edge/ratings.py), [`features.py`](cs2edge/features.py) | Chronological ratings and feature extraction |
 | [`model.py`](cs2edge/model.py), [`metrics.py`](cs2edge/metrics.py) | Estimation, calibration and scoring |
 | [`snapshot.py`](cs2edge/snapshot.py) | Complete analyzer persistence and integrity checks |
+| [`calibration.py`](cs2edge/calibration.py) | Historical predictions made before their target days |
 | [`markets.py`](cs2edge/markets.py) | Veto and series-score distributions |
 | [`backtest.py`](cs2edge/backtest.py), [`pronostic.py`](cs2edge/pronostic.py) | Evaluation and selective prediction rules |
 | [`journal.py`](cs2edge/journal.py), [`cli.py`](cs2edge/cli.py) | Recorded predictions and command-line entry points |

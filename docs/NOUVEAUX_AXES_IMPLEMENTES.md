@@ -3,6 +3,8 @@
 Suite du travail après `5b9c0d2`, sur le même jeu de démonstration. Ces changements
 corrigent des défauts reproduits et ajoutent deux fonctions : la réutilisation
 d’un analyseur entraîné et une mesure d’incertitude face à la référence Elo.
+Cette série se termine à `06cc329`. Les travaux suivants sont décrits dans
+[Fiabilité et calibration](FIABILITE_CALIBRATION.md).
 
 | Axe | Défaut ou besoin | Résultat et vérification |
 | --- | --- | --- |

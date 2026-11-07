@@ -162,8 +162,8 @@ live — so exactly where the approximation is expensive. Those prices are often
 from a model with no veto.
 
 > [!NOTE]
-> The **-1.5 handicap** (the favourite wins without dropping a map: a 2-0 in a
-> bo3, a 3-0 in a bo5) falls straight out of that structure. An unbalanced pool
+> The **sweep handicap** (-1.5 in a bo3, -2.5 in a bo5) falls straight out of
+> that structure. A bo5 -1.5 also covers 3-1. An unbalanced pool
 > makes the sweep far more likely than an i.i.d. model believes. The tipster
 > raises it to its confidence tier — validated down into the 0.60–0.70 band on the
 > backtest — and flags that it is **correlated** with the winner: you do not stack
@@ -176,6 +176,12 @@ knows about the two teams? `slate` **measures** it on the history and only appli
 it if it exceeds the noise (`--momentum auto`, the default). It is the only
 quantity left at zero by default, precisely because it is easy to hallucinate:
 many public models impose it by intuition, which amounts to inventing signal.
+
+The coefficient applies to the cumulative map-win balance before the next map,
+matching the series simulator. It is estimated using historical predictions
+whose training ends before their target day, with standard errors grouped by
+match. The diagnostic measures residual association; it does not identify a
+causal effect of winning a map.
 
 ---
 
@@ -399,6 +405,17 @@ Loading checks component hashes, schemas and model/history compatibility. GBDT
 bundles require the same scikit-learn version and use pickle: load bundles only
 from trusted sources. `train --out models/match.json` retains the match-only
 JSON export and does not produce a complete analyzer.
+
+New v2 archives also store the predictions used for calibration, with their
+training cutoff dates. This lets a future slate use the default momentum and
+length calibration without refitting classifiers. V1 archives remain readable;
+their calibration history is built lazily if requested. Retraining or loading
+different data invalidates the cache.
+
+Probability and policy inputs must be finite and within their domains. In
+particular, abstention must be between 0.5 and 1 and calibration temperature
+must be positive. The implemented bo3/bo5 veto requires seven distinct maps;
+a series distribution requires exactly `best_of` ordered, distinct maps.
 
 ## Measuring, and distrusting flattering numbers
 
