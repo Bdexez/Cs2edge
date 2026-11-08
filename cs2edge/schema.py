@@ -75,14 +75,18 @@ def normalize_map(name: str) -> str:
 
 
 def parse_date(value) -> dt.date:
+    """Lit toute la valeur ; un horodatage conserve son jour calendaire local."""
     if isinstance(value, dt.datetime):
         return value.date()
     if isinstance(value, dt.date):
         return value
     s = str(value).strip()
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y", "%Y-%m-%dT%H:%M:%S"):
+    formats = ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"]
+    formats.extend(f"%Y-%m-%d{sep}%H:%M:%S{fraction}{zone}"
+                   for sep in ("T", " ") for fraction in ("", ".%f") for zone in ("", "%z"))
+    for fmt in formats:
         try:
-            return dt.datetime.strptime(s[: len(fmt) + 2].strip(), fmt).date()
+            return dt.datetime.strptime(s, fmt).date()
         except ValueError:
             continue
     raise ValueError(f"date illisible: {value!r}")

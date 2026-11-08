@@ -6,8 +6,32 @@ import tempfile
 import unittest
 
 from cs2edge.features import build_datasets
-from cs2edge.schema import MapResult, group_matches, read_csv, write_csv
+from cs2edge.schema import MapResult, group_matches, parse_date, read_csv, write_csv
 from cs2edge.sources import from_records
+
+
+class DateParsingTests(unittest.TestCase):
+    def test_supported_dates_and_timestamps_preserve_the_written_day(self):
+        expected = dt.date(2026, 1, 1)
+        for value in (expected, dt.datetime(2026, 1, 1, 23, 30),
+                      "2026-01-01", "01/01/2026", "2026/01/01", "01-01-2026",
+                      " 2026-01-01 ", "2026-01-01T23:30:15", "2026-01-01 23:30:15",
+                      "2026-01-01T23:30:15.123456", "2026-01-01T23:30:15Z",
+                      "2026-01-01T23:30:15.123456+02:00", "2026-01-01T23:30:15-02:00"):
+            with self.subTest(value=value):
+                self.assertEqual(parse_date(value), expected)
+
+    def test_invalid_suffixes_and_times_are_rejected_in_full(self):
+        for value in ("2026-01-01oops", "2026-01-01T99:99:99", "2026-01-01 99:99:99",
+                      "2026-01-01T23:30:15junk", "2026-01-01T23:30:15+25:00",
+                      "2026-01-01T23:30:15+02:99", "2026-02-30", "", None):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "date illisible"):
+                parse_date(value)
+
+    def test_import_reports_the_record_with_an_invalid_date(self):
+        with self.assertRaisesRegex(ValueError, "enregistrement 1.*date illisible"):
+            from_records([dict(match_id="m", date="2026-01-01oops", team_a="a", team_b="b",
+                               map="mirage", rounds_a=13, rounds_b=5, best_of=1)])
 
 
 class ImportTests(unittest.TestCase):
