@@ -24,6 +24,7 @@ from typing import Iterable, Sequence
 
 from .pronostic import Analysis, Pick, SettledPick, TipsterRecord, _settle
 from . import __version__
+from .csvio import read_rows
 from .schema import Match, normalize_team, parse_date
 
 COLUMNS = [
@@ -78,8 +79,8 @@ def load(path: str | Path) -> list[dict]:
     path = Path(path)
     if not path.exists():
         return []
-    with path.open(newline="", encoding="utf-8") as fh:
-        return list(csv.DictReader(fh))
+    # Les 17 colonnes du format initial restent requises ; les ajouts sont optionnels.
+    return [row for _, row in read_rows(path, COLUMNS[:17])]
 
 
 def _write(path: Path, rows: Sequence[dict]) -> None:

@@ -23,6 +23,7 @@ import datetime as dt
 import math
 from dataclasses import dataclass, field
 
+from .csvio import read_rows
 from .markets import (
     MarketLine, build_markets, enforce_margins, fit_decider_calibration,
     project_veto, series_distribution,
@@ -822,12 +823,6 @@ def simulate_tipster(
 # Entree : la liste des matchs a venir.
 # ---------------------------------------------------------------------------
 
-FIXTURE_COLUMNS = (
-    "date,team_a,team_b[,best_of,lan,event,odds_a,odds_b,odds_over,odds_under,"
-    "odds_a_sweep,odds_b_sweep]"
-)
-
-
 def read_fixtures(path: str | "Path") -> list[Fixture]:
     """Lit un CSV de matchs a venir.
 
@@ -836,10 +831,6 @@ def read_fixtures(path: str | "Path") -> list[Fixture]:
     sans elles le pronostiqueur repond "qui gagne", avec elles il repond "ou le
     marche se trompe". Ce ne sont pas les memes pronostics.
     """
-    import csv
-
-    from .schema import normalize_team, parse_date
-
     def _f(row: dict, key: str) -> float | None:
         raw = (row.get(key) or "").strip()
         if not raw:
@@ -850,32 +841,27 @@ def read_fixtures(path: str | "Path") -> list[Fixture]:
         return value
 
     out: list[Fixture] = []
-    with open(path, newline="", encoding="utf-8-sig") as fh:
-        reader = csv.DictReader(fh)
-        missing = {"date", "team_a", "team_b"} - set(reader.fieldnames or [])
-        if missing:
-            raise ValueError(f"colonnes manquantes : {sorted(missing)} ({FIXTURE_COLUMNS})")
-        for i, row in enumerate(reader):
-            try:
-                out.append(
-                    Fixture(
-                        date=parse_date(row["date"]),
-                        team_a=normalize_team(row["team_a"]),
-                        team_b=normalize_team(row["team_b"]),
-                        best_of=parse_integer(row.get("best_of") or 3, "best_of"),
-                        lan=_to_bool(row.get("lan")),
-                        event=(row.get("event") or "").strip(),
-                        odds_a=_f(row, "odds_a"),
-                        odds_b=_f(row, "odds_b"),
-                        odds_over=_f(row, "odds_over"),
-                        odds_under=_f(row, "odds_under"),
-                        odds_a_sweep=_f(row, "odds_a_sweep"),
-                        odds_b_sweep=_f(row, "odds_b_sweep"),
-                        match_id=str(row.get("match_id") or "").strip(),
-                    )
+    for line, row in read_rows(path, {"date", "team_a", "team_b"}):
+        try:
+            out.append(
+                Fixture(
+                    date=parse_date(row["date"]),
+                    team_a=normalize_team(row["team_a"]),
+                    team_b=normalize_team(row["team_b"]),
+                    best_of=parse_integer(row.get("best_of") or 3, "best_of"),
+                    lan=_to_bool(row.get("lan")),
+                    event=(row.get("event") or "").strip(),
+                    odds_a=_f(row, "odds_a"),
+                    odds_b=_f(row, "odds_b"),
+                    odds_over=_f(row, "odds_over"),
+                    odds_under=_f(row, "odds_under"),
+                    odds_a_sweep=_f(row, "odds_a_sweep"),
+                    odds_b_sweep=_f(row, "odds_b_sweep"),
+                    match_id=str(row.get("match_id") or "").strip(),
                 )
-            except (ValueError, KeyError) as exc:
-                raise ValueError(f"ligne {i + 2} invalide : {exc}") from exc
+            )
+        except (ValueError, KeyError) as exc:
+            raise ValueError(f"ligne {line} invalide dans {path}: {exc}") from exc
     return out
 
 

@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Iterable, Iterator, Sequence
 
+from .csvio import read_rows
+
 ACTIVE_DUTY = (
     "ancient",
     "anubis",
@@ -238,18 +240,12 @@ def read_csv(path: str) -> list[MapResult]:
     Optionnelles      : best_of,event,tier,lan,map_index,roster_a,roster_b
     """
     rows: list[MapResult] = []
-    with open(path, newline="", encoding="utf-8-sig") as fh:
-        reader = csv.DictReader(fh)
-        missing = {"match_id", "date", "team_a", "team_b", "map", "rounds_a", "rounds_b"} - set(
-            reader.fieldnames or []
-        )
-        if missing:
-            raise ValueError(f"colonnes manquantes dans {path}: {sorted(missing)}")
-        for i, row in enumerate(reader):
-            try:
-                rows.append(map_from_record(row))
-            except (ValueError, KeyError, TypeError) as exc:
-                raise ValueError(f"ligne {i + 2} invalide dans {path}: {exc}") from exc
+    required = {"match_id", "date", "team_a", "team_b", "map", "rounds_a", "rounds_b"}
+    for line, row in read_rows(path, required):
+        try:
+            rows.append(map_from_record(row))
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ValueError(f"ligne {line} invalide dans {path}: {exc}") from exc
     rows.sort(key=lambda m: (m.date, m.match_id, m.map_index))
     return rows
 
