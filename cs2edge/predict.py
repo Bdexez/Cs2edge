@@ -211,28 +211,44 @@ class Analyzer:
         return self.load_maps(read_csv(str(path)))
 
     def load_maps(self, maps: list[MapResult]) -> "Analyzer":
-        self.maps = list(maps)
-        self.matches = group_matches(self.maps)
+        """Remplace l'historique valide ; un echec conserve l'analyseur precedent."""
+        maps = list(maps)
+        matches = group_matches(maps)
+        match_ds, map_ds, fx = build_datasets(matches, self.elo_config, self.warmup_maps)
+        self.maps, self.matches = maps, matches
+        self.match_ds, self.map_ds, self.fx = match_ds, map_ds, fx
         self.match_model = self.map_model = None
+        self._training_options = {}
         self._snapshots.clear()
         self._calibration_history = None
-        self.match_ds, self.map_ds, self.fx = build_datasets(
-            self.matches, self.elo_config, self.warmup_maps
-        )
+        if self._momentum_auto:
+            self.momentum = 0.0
         return self
 
     def train(self, **kwargs) -> "Analyzer":
+        """Publie les deux modeles et leur calibration seulement apres reussite."""
         if self.match_ds is None:
             raise RuntimeError("charger des donnees avant d'entrainer")
-        self._training_options = dict(kwargs)
-        self._snapshots.clear()
-        self._calibration_history = None
-        self.match_model = MatchPredictor(**kwargs).fit(
+        match_model = MatchPredictor(**kwargs).fit(
             self.match_ds.X, self.match_ds.y, self.match_ds.dates, self.match_ds.feature_names
         )
-        self.map_model = map_predictor(**kwargs).fit(
+        map_model = map_predictor(**kwargs).fit(
             self.map_ds.X, self.map_ds.y, self.map_ds.dates, self.map_ds.feature_names
         )
+        history = None
+        momentum = self.momentum
+        if self._momentum_auto:
+            from .calibration import prequential_maps
+            from .markets import estimate_momentum
+
+            history = prequential_maps(self.match_ds, self.map_ds, **kwargs)
+            diag = estimate_momentum(self.matches, history=history)
+            momentum = float(diag["momentum"]) if diag.get("significatif") else 0.0
+        self.match_model, self.map_model = match_model, map_model
+        self._training_options = dict(kwargs)
+        self._snapshots.clear()
+        self._calibration_history = history
+        self.momentum = momentum
         return self
 
     def as_of(self, on: dt.date) -> "Analyzer":
