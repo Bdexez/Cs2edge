@@ -9,7 +9,7 @@ speaks on*, explains why, archives its calls — and publishes its own track rec
 
 ![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)
 ![Engine](https://img.shields.io/badge/engine-NumPy%20only-013243?logo=numpy&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-32%20OK-2ea44f)
+[![Tests](https://github.com/Bdexez/Cs2edge/actions/workflows/tests.yml/badge.svg)](https://github.com/Bdexez/Cs2edge/actions/workflows/tests.yml)
 ![Probabilities](https://img.shields.io/badge/probabilities-calibrated-1f6feb)
 
 </div>
@@ -360,6 +360,19 @@ match_id,date,team_a,team_b,map,rounds_a,rounds_b,best_of,event,tier,lan,map_ind
 | `map_index` | — | order of the maps within the series |
 | `roster_a`, `roster_b` | — | comma-separated handles — detects roster changes |
 
+Dates accept `YYYY-MM-DD`, `DD/MM/YYYY`, `YYYY/MM/DD` and `DD-MM-YYYY`.
+ISO timestamps with seconds, optional microseconds and an optional UTC offset
+or `Z` are also accepted, with `T` or a space between date and time. The written
+calendar day is preserved; timestamps are not converted to UTC. The entire value
+must be valid: suffixes and impossible times are rejected.
+
+History, fixture and journal CSV readers reject duplicate headers, unterminated
+quotes and rows with too few or too many cells. Leave optional cells explicitly
+empty, including trailing cells declared in the header. UTF-8 BOMs, quoted commas
+and quoted multiline fields are supported. Errors identify the file and physical
+line when applicable. An existing journal with a damaged structure is refused
+before appending or settling; older journal headers remain supported.
+
 ### Upcoming matches
 
 ```csv
@@ -386,6 +399,13 @@ directly.
 ---
 
 ## Reusing a trained analyzer
+
+For Python callers, `Analyzer.load_maps()` and `Analyzer.train()` replace state
+only after their work succeeds. A failed import or training attempt preserves
+the previous models, history and configuration. A successful import clears the
+models and requires training again. If automatic momentum was enabled, its old
+estimate is cleared on import and recalculated during training using the new
+data and options. Explicitly configured momentum is preserved.
 
 ```bash
 cs2edge train --no-gbdt --bundle models/analyzer.cs2edge

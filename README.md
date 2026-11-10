@@ -19,6 +19,9 @@ The [previous improvements](docs/NOUVEAUX_AXES_IMPLEMENTES.md) add rating fixes,
 reusable analyzer snapshots and uncertainty intervals for backtests.
 The [latest reliability work](docs/FIABILITE_CALIBRATION.md) fixes odds calculations,
 series probabilities and calibration using predictions made before each result.
+The [input and state audit](docs/FIABILITE_ENTREES_ET_ETAT.md) adds strict date and
+CSV validation, preserves a usable analyzer after failed updates and refreshes
+automatic momentum when data or training options change.
 
 ## Why this project is interesting
 
